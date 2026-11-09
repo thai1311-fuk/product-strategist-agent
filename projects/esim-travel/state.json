@@ -1,20 +1,18 @@
 {
   "project": "esim-travel",
   "title": "Кому продавать eSIM для зарубежных поездок в приложении оператора и что говорить аудитории на занятом рынке",
-  "stage": "strategy",
+  "stage": "monitor",
   "stage_status": "in_progress",
-  "next_step": "Разработать продуктовую и коммуникационную стратегию по выбранному варианту",
-  "open_questions": [
-    "ПДн: обезличивание неполное. В sources/S017.md остался ник автора первого отзыва (строка ~68) и имена в ответах разработчика; в S018.md — имена и фамилии авторов трёх отзывов (строки ~155–209). В доказательства не попали. Нужна доработка sanitize/редакция (вне агента) — подтвердите, кто делает"
-  ],
+  "next_step": "решение руководителя по дизайну пилота (салон); пересмотр 2026-12-15",
+  "open_questions": [],
   "gates": {
     "plan_approved": true,
     "option_chosen": "C011",
-    "strategy_approved": false
+    "strategy_approved": true
   },
   "budget_usd": 15.0,
   "created_at": "2026-11-09T11:54:15+03:00",
-  "updated_at": "2026-11-09T15:48:56+03:00",
+  "updated_at": "2026-11-09T16:05:30+03:00",
   "history": [
     {
       "ts": "2026-11-09T11:54:15+03:00",
@@ -180,6 +178,56 @@
       "ts": "2026-11-09T15:48:56+03:00",
       "stage": "strategy",
       "event": "options/awaiting_human → strategy/in_progress (после ворот option_chosen)"
+    },
+    {
+      "ts": "2026-11-09T15:59:34+03:00",
+      "stage": "strategy",
+      "event": "strategy/in_progress → strategy/awaiting_human"
+    },
+    {
+      "ts": "2026-11-09T16:00:49+03:00",
+      "stage": "strategy",
+      "event": "ворота strategy_approved = True (решение человека)"
+    },
+    {
+      "ts": "2026-11-09T16:00:49+03:00",
+      "stage": "test_plan",
+      "event": "strategy/awaiting_human → test_plan/in_progress (после ворот strategy_approved)"
+    },
+    {
+      "ts": "2026-11-09T16:00:53+03:00",
+      "stage": "test_plan",
+      "event": "закрыт вопрос: ПДн: обезличивание неполное. В sources/S017.md остался ник автора первого отзыв…"
+    },
+    {
+      "ts": "2026-11-09T16:02:34+03:00",
+      "stage": "decision",
+      "event": "test_plan/in_progress → decision/in_progress"
+    },
+    {
+      "ts": "2026-11-09T16:02:41+03:00",
+      "stage": "monitor",
+      "event": "decision/in_progress → monitor/in_progress"
+    },
+    {
+      "ts": "2026-11-09T16:03:40+03:00",
+      "stage": "monitor",
+      "event": "impact E146: на пересмотр C007, C009, C011, C012, C014, C015, C016, C017, C018, C019, C020, C022, C023"
+    },
+    {
+      "ts": "2026-11-09T16:03:40+03:00",
+      "stage": "monitor",
+      "event": "impact E158: на пересмотр C021"
+    },
+    {
+      "ts": "2026-11-09T16:05:18+03:00",
+      "stage": "monitor",
+      "event": "impact C007: на пересмотр C009, C011, C012, C014, C015, C016, C017, C019, C020, C022, C023"
+    },
+    {
+      "ts": "2026-11-09T16:05:30+03:00",
+      "stage": "monitor",
+      "event": "monitor/in_progress → monitor/in_progress"
     }
   ]
 }
