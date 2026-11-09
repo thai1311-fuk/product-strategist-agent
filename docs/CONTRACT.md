@@ -125,7 +125,7 @@ def scan_secrets(text: str) -> list[str]                # найденные т�
 |---|---|
 | Архитектор | AGENTS.md, CLAUDE.md, docs/CONTRACT.md, docs/ARCHITECTURE.md, .claude/skills/strategist/ |
 | Инженер | scripts/sa.py, scripts/lib/{store,state,evidence,impact,validate,cost,decisions}.py, config/routing.json, .claude/settings.json, .claude/hooks/{session_start,post_tool_log,stop_state}.py, .cursor/rules/, templates/brief.md, tests/test_core.py |
-| Безопасность | scripts/lib/sanitize.py, config/allowed_sources.json, .claude/hooks/guard.py, .gitignore, .env.example, docs/SECURITY.md, tests/test_security.py, tests/fixtures/injection_*.html |
+| Безопасность | scripts/lib/sanitize.py, scripts/resanitize.py, config/allowed_sources.json, .claude/hooks/guard.py, .gitignore, .env.example, docs/SECURITY.md, tests/test_security.py, tests/fixtures/injection_*.html |
 | Продукт | knowledge/methods/product/, .claude/skills/product-strategy/, templates/{options,product_strategy}.md |
 | Коммуникации | knowledge/methods/comms/, .claude/skills/comms-strategy/, .claude/agents/consistency-checker.md, templates/comms_strategy.md |
 | Исследование и данные | knowledge/methods/research/, .claude/skills/{research,data-analysis}/, .claude/agents/collector.md, scripts/analysis/, templates/{research_plan,situation,test_plan}.md, tests/test_analysis.py |

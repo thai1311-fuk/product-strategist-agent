@@ -1,20 +1,20 @@
 {
   "project": "esim-travel",
   "title": "Кому продавать eSIM для зарубежных поездок в приложении оператора и что говорить аудитории на занятом рынке",
-  "stage": "options",
+  "stage": "strategy",
   "stage_status": "in_progress",
-  "next_step": "Варианты A–D + critic, ворота option_chosen",
+  "next_step": "Разработать продуктовую и коммуникационную стратегию по выбранному варианту",
   "open_questions": [
     "ПДн: обезличивание неполное. В sources/S017.md остался ник автора первого отзыва (строка ~68) и имена в ответах разработчика; в S018.md — имена и фамилии авторов трёх отзывов (строки ~155–209). В доказательства не попали. Нужна доработка sanitize/редакция (вне агента) — подтвердите, кто делает"
   ],
   "gates": {
     "plan_approved": true,
-    "option_chosen": null,
+    "option_chosen": "C011",
     "strategy_approved": false
   },
-  "budget_usd": 10.0,
+  "budget_usd": 15.0,
   "created_at": "2026-11-09T11:54:15+03:00",
-  "updated_at": "2026-11-09T15:38:21+03:00",
+  "updated_at": "2026-11-09T15:48:56+03:00",
   "history": [
     {
       "ts": "2026-11-09T11:54:15+03:00",
@@ -160,6 +160,26 @@
       "ts": "2026-11-09T15:38:21+03:00",
       "stage": "options",
       "event": "synthesis/done → options/in_progress"
+    },
+    {
+      "ts": "2026-11-09T15:48:04+03:00",
+      "stage": "options",
+      "event": "options/in_progress → options/awaiting_human"
+    },
+    {
+      "ts": "2026-11-09T15:48:55+03:00",
+      "stage": "options",
+      "event": "бюджет 10.0 → 15.0 USD: Решение руководителя 09.11: этапы 5–7 с consistency-checker не укладываются в 10 $; оркестрацию впредь вести на средней модели"
+    },
+    {
+      "ts": "2026-11-09T15:48:56+03:00",
+      "stage": "options",
+      "event": "ворота option_chosen = C011 (решение человека)"
+    },
+    {
+      "ts": "2026-11-09T15:48:56+03:00",
+      "stage": "strategy",
+      "event": "options/awaiting_human → strategy/in_progress (после ворот option_chosen)"
     }
   ]
 }

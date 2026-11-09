@@ -298,6 +298,16 @@ def _check_pii(pdir: Path, rep: Report) -> None:
         found += [name for name, rx in PII_RE.items() if rx.search(text) and name not in found]
         if found:
             rep.warn(f"interviews/transcripts/{f.name}: признаки персональных данных ({', '.join(found)}) — обезличьте")
+    # Тексты источников (отзывы, комментарии): только детектор sanitize — он знает исключения (8-800, press@ и т. п.)
+    if detector:
+        for f in sorted((pdir / "sources").glob("S*.md")):
+            try:
+                found = list(detector(f.read_text(encoding="utf-8", errors="replace")) or [])
+            except Exception:  # noqa: BLE001
+                found = []
+            if found:
+                rep.warn(f"sources/{f.name}: признаки персональных данных ({', '.join(found)}) — "
+                         f"обезличьте: python3 scripts/resanitize.py {pdir.name}")
 
 
 def _check_state(pdir: Path, rep: Report) -> None:

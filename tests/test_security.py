@@ -264,6 +264,15 @@ class TestSanitizeText(unittest.TestCase):
             "Lexx_Nimofff10 сен 2025 в 13:50": "Lexx_Nimofff",
             "ИванОпубликован 8 апр 2026": "Иван",
             "2024-09-18\nyouskam\nI travelled to 4 countries": "youskam",
+            "Jul 25\nbrlouie\n\nUse this code for $3 off": "brlouie",
+            "William Hunter\n\n- Flag inappropriate\n\n11 October 2025\nGreat app": "William Hunter",
+            "Airalo\n\nHi Gaspard! Thank you for sharing your experience!": "Gaspard",
+            "Hello Tris. B F., thank you for sharing your feedback.": "Tris. B F.",
+            "Thank you, William, for your positive review": "William",
+            "Здравствуйте, Иван! Спасибо за отзыв.": "Иван",
+            "Супер 02.08.2024 bunny_cool Отличное приложение.": "bunny_cool",
+            "No contact 2024-07-27 Vernesska I have been trying": "Vernesska",
+            "Алексей@Lexx_Nimofff": "Lexx_Nimofff",
         }
         for text, nick in cases.items():
             with self.subTest(text=text):
@@ -275,10 +284,15 @@ class TestSanitizeText(unittest.TestCase):
 
     def test_authors_no_false_positive(self):
         for text in ["Архивировано 9 ноября 2018", "Сообщил 18 июля 2025", "2026-02-01 Запуск пилота",
-                     "| 2026-02-01 | Launch |", "Developer Response 2024-10-08 Hello there.", "Понедельник, 09.11.2026",
+                     "| 2026-02-01 | Launch |", "Developer Response 2024-10-08 Hello there.", "Понедельник, 09.11.2026", "Hey there! We are glad to help.", "Hi team, see the report.", "On 2024-05-01 Apple released an update.",
                      "Пишите @airalo — официальный аккаунт airalo.com", "Старт продаж 1 марта 2026"]:
             with self.subTest(text=text):
                 self.assertEqual(sanitize.scan_pii(text), [])
+
+    def test_author_name_masked_everywhere(self):
+        t = "Vernesska\n\nNo contact 2024-07-27 Vernesska I have been trying\n\nHi Vernesska! Sorry."
+        clean, _ = sanitize.sanitize_text("2024-07-27\n" + t)
+        self.assertNotIn("Vernesska", clean)
 
     def test_scan_pii_types(self):
         t = "тел. +7 916 123-45-67, ivan@mail.ru, паспорт 45 06 123456, СНИЛС 112-233-445 95"

@@ -396,12 +396,29 @@ _RX_AUTHOR_LABEL = re.compile(r"(?i)(?P<pre>\b(?:автор(?:\s+отзыва|\s
                               r"|\bposted\s+by\s+|\b(?:отзыв|комментарий|ответ)\s+от\s+(?:пользователя\s+)?)"
                               r"(?P<n>[^\s,.:;!?()<>\[\]]{2,30}(?:\s+(?-i:[A-ZА-ЯЁ])[^\s,.:;!?()<>\[\]]{0,29}){0,2})")
 # App Store в одну строку: «… 2024-09-17 THESophie28 I have tried…» (кроме «Developer Response 2024-10-08 Hello»)
-_RX_ISO_NICK = re.compile(r"(?<!response )(?<!разработчика )(?<![\d-])(?P<d>\d{4}-\d{2}-\d{2})(?P<sep>\s+)"
-                          r"(?P<n>[A-Za-z0-9_.\-]{3,30})(?=\s+\S)", re.I)
+_RX_ISO_NICK = re.compile(r"(?<!response )(?<!разработчика )(?<![\d.-])(?P<d>\d{4}-\d{2}-\d{2}|\d{2}\.\d{2}\.\d{4})"
+                          r"(?P<sep>\s+)(?P<n>[A-Za-z0-9_.\-]{3,30}|[А-ЯЁ][А-Яа-яЁё0-9_]{2,29})(?=\s+(?P<next>\S))", re.I)
+# Хабр, блок автора: «Алексей@Lexx_Nimofff» (имя слито с ником; не e-mail — после @ нет домена)
+_RX_NAME_AT_NICK = re.compile(r"(?m)^(?P<pre>[ \t]*)(?P<name>[^\s@]{0,30}(?:[ \t][^\s@]{1,30}){0,2})@(?P<n>[A-Za-z0-9_]{3,30})[ \t]*$")
 _RX_HANDLE = re.compile(r"(?<![\w.@/])@(?P<n>[A-Za-z0-9_][A-Za-z0-9_.]{2,30}[A-Za-z0-9_])(?![\w@]|\.[A-Za-z]{2,}\b)")
 _RX_STARS_OR_DATE = re.compile(rf"(?i)^\s*(?:[★☆⭐*]{{1,5}}|\d(?:[.,]\d)?\s*(?:из|out of)\s*5|оценка|rating)?\s*(?:{_DATE})?\s*$")
 _RX_NAMEISH = re.compile(r"^\s*[A-ZА-ЯЁ][\w'’.-]{1,25}(?:\s+[A-ZА-ЯЁ][\w'’.-]{0,25}){0,2}\s*$|^\s*[A-Za-z0-9_.-]*[0-9_][A-Za-z0-9_.-]*\s*$")
 AUTHOR_MASK = "[автор отзыва]"
+# дата отдельной строкой (App Store: «Jul 25», «2024-09-18»), за ней — строка с ником
+_RX_DATE_ONLY = re.compile(rf"(?i)^\s*(?:{_DATE}|{_MONTHS_EN}\s+\d{{1,2}}(?:,?\s+\d{{4}})?)\s*$")
+_RX_SINGLE_TOKEN = re.compile(r"^\s*[^\s#>*\-–—|][^\s]{1,29}\s*$")
+# Google Play: имя автора над строкой «Flag inappropriate» / «Пожаловаться»
+_RX_PLAY_FLAG = re.compile(r"(?i)^\s*[-*]?\s*(flag inappropriate|пожаловаться|отметить как неприемлем\w*|"
+                           r"show review history|показать историю отзывов)\s*$")
+_GREET_NAME = r"(?P<n>(?-i:[A-ZА-ЯЁ])[\w'’-]*\.?(?:[ \t]+(?-i:[A-ZА-ЯЁ])[\w'’-]*\.?){0,3})"
+# обращение по имени в ответе поддержки: «Hi Anna,», «Hello Tris. B F.,», «Здравствуйте, Иван!», «Thank you, William, for»
+_RX_GREETING = re.compile(rf"(?i)(?P<pre>\b(?:hi|hello|hey|dear|здравствуйте|добрый\s+(?:день|вечер|утро)|привет|"
+                          rf"уважаем\w*)[ \t]*,?[ \t]+){_GREET_NAME}(?=[ \t]*[,!.:])")
+_RX_THANKS_NAME = re.compile(rf"(?i)(?P<pre>\b(?:thank\s+you|thanks|спасибо)[ \t]*,[ \t]*){_GREET_NAME}(?=[ \t]*,)")
+_NOT_GREET = {"there", "team", "everyone", "all", "friend", "friends", "traveler", "travelers", "traveller",
+              "travellers", "user", "customer", "folks", "guys", "again", "you", "друзья", "коллеги", "клиент",
+              "пользователь", "уважаемый", "уважаемая", "уважаемые", "и", "мы"}
+
 
 
 def _nickish(tok: str) -> bool:
@@ -415,6 +432,7 @@ def _nickish(tok: str) -> bool:
 def _mask_authors(text: str) -> tuple[str, bool]:
     """Маскирует ники и имена авторов отзывов/комментариев (это ПДн, даже если отзыв публичный)."""
     hit = False
+    names: set[str] = set()
     brand_domains = set(m.lower() for m in re.findall(r"\b([a-z0-9-]{3,})\.(?:com|ru|io|net|org|app)\b", text, re.I))
 
     def line_sub(m: re.Match) -> str:
@@ -434,8 +452,11 @@ def _mask_authors(text: str) -> tuple[str, bool]:
 
     def iso_sub(m: re.Match) -> str:
         nonlocal hit
-        if not _nickish(m.group("n")):
+        n = m.group("n")
+        # ник: «dobgy», «THESophie28»; или имя, за которым начинается текст отзыва с заглавной («Vernesska I have…»)
+        if not (_nickish(n) or (n[:1].isupper() and m.group("next")[:1].isupper())) or n.lower() in _NOT_NAME:
             return m.group(0)
+        names.add(n)
         hit = True
         return f"{m.group('d')}{m.group('sep')}{AUTHOR_MASK}"
 
@@ -460,10 +481,45 @@ def _mask_authors(text: str) -> tuple[str, bool]:
     text = _RX_AUTHOR_LINE.sub(line_sub, text)
     text = _RX_AUTHOR_LABEL.sub(label_sub, text)
     text = _RX_ISO_NICK.sub(iso_sub, text)
+    def name_at_sub(m: re.Match) -> str:
+        nonlocal hit
+        if m.group("n").lower() in brand_domains:
+            return m.group(0)
+        names.update(x for x in (m.group("name"), m.group("n")) if x)
+        hit = True
+        return m.group("pre") + AUTHOR_MASK
+
+    text = _RX_NAME_AT_NICK.sub(name_at_sub, text)
     text = _RX_HANDLE.sub(handle_sub, text)
+
+    def greet_sub(m: re.Match) -> str:
+        nonlocal hit
+        if m.group("n").split()[0].lower().strip(".") in _NOT_GREET:
+            return m.group(0)
+        names.add(m.group("n"))
+        hit = True
+        return m.group("pre") + AUTHOR_MASK
+
+    text = _RX_GREETING.sub(greet_sub, text)
+    text = _RX_THANKS_NAME.sub(greet_sub, text)
     # имя отдельной строкой над оценкой/датой отзыва
     lines = text.split("\n")
     for i, ln in enumerate(lines):
+        nxt_any = [x for x in lines[i + 1:i + 4] if x.strip()]
+        # ник отдельной строкой сразу после строки-даты (App Store)
+        if i > 0 and _RX_DATE_ONLY.match(lines[i - 1]) and _RX_SINGLE_TOKEN.match(ln) and AUTHOR_MASK not in ln \
+                and ln.strip().lower() not in _NOT_NAME and not _RX_DATE_ONLY.match(ln) and not ln.strip().isdigit():
+            names.add(ln.strip())
+            lines[i] = AUTHOR_MASK
+            hit = True
+            continue
+        # имя над «Flag inappropriate» (Google Play)
+        if ln.strip() and AUTHOR_MASK not in ln and nxt_any and _RX_PLAY_FLAG.match(nxt_any[0]) \
+                and not _RX_PLAY_FLAG.match(ln) and len(ln.strip()) <= 60:
+            names.add(ln.strip())
+            lines[i] = AUTHOR_MASK
+            hit = True
+            continue
         if not ln.strip() or AUTHOR_MASK in ln or not _RX_NAMEISH.match(ln) or ln.strip().lower() in _NOT_NAME:
             continue
         nxt = [x for x in lines[i + 1:i + 4] if x.strip()][:2]
@@ -472,7 +528,20 @@ def _mask_authors(text: str) -> tuple[str, bool]:
         if nxt and _RX_STARS_OR_DATE.match(nxt[0]) and (stars or (nick and re.search(r"\d", nxt[0]))):
             lines[i] = re.sub(r"\S.*\S|\S", AUTHOR_MASK, ln, count=1)
             hit = True
-    return "\n".join(lines), hit
+    text = "\n".join(lines)
+    # найденное имя маскируем во всём тексте: ник повторяется в заголовке, ответе разработчика и т. п.
+    variants: set[str] = set()
+    for n in names:
+        n = n.strip().rstrip(".,!")
+        if len(n) >= 4 and n.lower() not in _NOT_NAME:
+            variants.add(n)
+            first = n.split()[0].rstrip(".")
+            if " " in n and len(first) >= 4 and first[:1].isupper():
+                variants.add(first)
+    for n in sorted(variants, key=len, reverse=True):
+        text, k = re.subn(rf"(?<![\w@]){re.escape(n)}(?!\w)", AUTHOR_MASK, text)
+        hit |= bool(k)
+    return text, hit
 
 
 def _mask_pii(line: str) -> tuple[str, bool]:
@@ -511,6 +580,16 @@ def _mask_pii(line: str) -> tuple[str, bool]:
     line = _RX_EMAIL.sub(email, line)
     return line, hit
 
+
+def anonymize(text: str) -> tuple[str, int]:
+    """Только обезличивание (авторы, телефоны, e-mail, паспорт, СНИЛС), без пометки инъекций.
+    Возвращает (текст, число замен). Нужна для повторной обработки сохранённых источников и цитат."""
+    if not isinstance(text, str) or not text:
+        return text or "", 0
+    before = text.count("скрыт]") + text.count(AUTHOR_MASK)
+    text, _ = _mask_authors(text)
+    text = "\n".join(_mask_pii(ln)[0] for ln in text.split("\n"))
+    return text, text.count("скрыт]") + text.count(AUTHOR_MASK) - before
 
 def scan_pii(text: str) -> list[str]:
     """Типы найденных персональных данных (без значений): phone, email, passport, snils, review_author."""
@@ -691,4 +770,4 @@ def sanitize_text(text: str) -> tuple[str, list[str]]:
     return result, sorted(flags)
 
 
-__all__ = ["is_allowed_url", "sanitize_text", "scan_secrets", "scan_pii", "check_url", "load_config"]
+__all__ = ["is_allowed_url", "sanitize_text", "scan_secrets", "scan_pii", "anonymize", "check_url", "load_config"]
