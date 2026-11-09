@@ -1,0 +1,73 @@
+{
+  "project": "bench-d",
+  "title": "Лингвобот: идти ли в корпоративный сегмент (бенчмарк, кейс D)",
+  "stage": "strategy",
+  "stage_status": "in_progress",
+  "next_step": "Разработать продуктовую и коммуникационную стратегию по выбранному варианту",
+  "open_questions": [],
+  "gates": {
+    "plan_approved": true,
+    "option_chosen": "C006",
+    "strategy_approved": false
+  },
+  "budget_usd": 5.0,
+  "created_at": "2026-11-09T17:04:25+03:00",
+  "updated_at": "2026-11-09T17:08:18+03:00",
+  "history": [
+    {
+      "ts": "2026-11-09T17:04:25+03:00",
+      "stage": "intake",
+      "event": "проект создан; шаблоны: brief.md, outputs/research_plan.md, outputs/situation.md, outputs/options.md, outputs/product_strategy.md, outputs/comms_strategy.md, outputs/test_plan.md"
+    },
+    {
+      "ts": "2026-11-09T17:05:08+03:00",
+      "stage": "plan",
+      "event": "intake/in_progress → plan/in_progress"
+    },
+    {
+      "ts": "2026-11-09T17:05:29+03:00",
+      "stage": "plan",
+      "event": "plan/in_progress → plan/awaiting_human"
+    },
+    {
+      "ts": "2026-11-09T17:05:55+03:00",
+      "stage": "plan",
+      "event": "ворота plan_approved = True (решение человека)"
+    },
+    {
+      "ts": "2026-11-09T17:05:55+03:00",
+      "stage": "collect",
+      "event": "plan/awaiting_human → collect/in_progress (после ворот plan_approved)"
+    },
+    {
+      "ts": "2026-11-09T17:07:03+03:00",
+      "stage": "collect",
+      "event": "collect/in_progress → collect/done: собрано 12 доказательств E004–E015 из S001–S004; веб-поиск не проводился"
+    },
+    {
+      "ts": "2026-11-09T17:07:03+03:00",
+      "stage": "synthesis",
+      "event": "collect/done → synthesis/in_progress: situation.md, C001–C004"
+    },
+    {
+      "ts": "2026-11-09T17:07:07+03:00",
+      "stage": "synthesis",
+      "event": "synthesis/in_progress → synthesis/in_progress"
+    },
+    {
+      "ts": "2026-11-09T17:07:45+03:00",
+      "stage": "options",
+      "event": "synthesis/in_progress → options/awaiting_human"
+    },
+    {
+      "ts": "2026-11-09T17:08:18+03:00",
+      "stage": "options",
+      "event": "ворота option_chosen = C006 (решение человека)"
+    },
+    {
+      "ts": "2026-11-09T17:08:18+03:00",
+      "stage": "strategy",
+      "event": "options/awaiting_human → strategy/in_progress (после ворот option_chosen)"
+    }
+  ]
+}
