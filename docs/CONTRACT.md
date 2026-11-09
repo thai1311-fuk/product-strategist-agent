@@ -149,3 +149,5 @@ def scan_secrets(text: str) -> list[str]                # найденные т�
 - Ограничение: хук расходов не видит транскрипты субагентов отдельно — их расходы вносятся `sa.py cost add` по отчёту субагента.
 - Команды `budget <slug> <usd> [--reason]` и `allow <domain> --reason` (только после прямого согласия пользователя в чате; guard.py спрашивает подтверждение). `source fetch`: код выхода 3 — пустая/закрытая страница, источник не сохранён. `cost add --cache-read/--cache-write`.
 - `gate` сам переводит этап: plan_approved → collect, option_chosen → strategy, strategy_approved → test_plan.
+- `impact` по умолчанию — краткая сводка, `--full` — все места файл:строка. `conclusion review-order <slug>` — выводы needs_review в порядке зависимостей. В conclusions.jsonl поля `review_wave` (начало волны пересмотра) и `reviewed_at`.
+- `ab_size.py --metric mean` — размер выборки для непрерывных метрик (выручка), сценарии CV при неизвестном SD.

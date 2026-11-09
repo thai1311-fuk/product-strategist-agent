@@ -186,6 +186,18 @@ def cmd_conclusion_add(a):
     print(f"{rec['id']}: [{rec['kind']}] {store.truncate(rec['statement'], 100)} ← {', '.join(rec['depends_on'])}")
 
 
+def cmd_conclusion_review_order(a):
+    order, cyclic = impact.review_order(_p(a))
+    if not order and not cyclic:
+        print("Выводов на пересмотре нет.")
+        return
+    print(f"Порядок пересмотра ({len(order) + len(cyclic)}): сначала основания, потом зависящие от них")
+    for i, c in enumerate(order, 1):
+        print(f"  {i}. {c['id']} {store.truncate(c.get('statement'), 60)} ← {','.join(c.get('depends_on', []))}")
+    if cyclic:
+        print("  Циклическая зависимость (пересмотрите вместе): " + ", ".join(c["id"] for c in cyclic))
+
+
 def cmd_conclusion_list(a):
     rows = evidence.list_conclusions(_p(a), a.status)
     for c in rows:
@@ -196,14 +208,16 @@ def cmd_conclusion_list(a):
 
 def cmd_conclusion_update(a):
     pdir = _p(a)
+    before = store.by_id(store.read_jsonl(pdir / "conclusions.jsonl")).get(a.id.upper(), {})
     rec = evidence.update_conclusion(pdir, a.id, a.status, a.statement, a.depends_on, a.note)
     print(f"{rec['id']}: статус {rec['status']}")
     if rec["status"] in ("retracted", "revised"):
-        impact.run(pdir, [rec["id"]])
+        # та же волна пересмотра: уже пересмотренные в ней выводы повторно не помечаются
+        impact.run(pdir, [rec["id"]], wave=before.get("review_wave") or rec.get("review_wave"), full=a.full)
 
 
 def cmd_impact(a):
-    impact.run(_p(a), a.ids, mark=not a.dry_run)
+    impact.run(_p(a), a.ids, mark=not a.dry_run, full=a.full)
 
 
 def cmd_validate(a):
@@ -408,7 +422,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("slug")
     sp.add_argument("--claim", required=True)
     sp.add_argument("--type", required=True, choices=evidence.EV_TYPES)
-    sp.add_argument("--source", help="S001 или S001,S002")
+    sp.add_argument("--source", nargs="?", const="", default=None,
+                    help="S001 или S001,S002; для estimate/hypothesis/assumption/forecast можно не указывать")
     sp.add_argument("--quote")
     sp.add_argument("--locator")
     sp.add_argument("--confidence", default="medium", choices=evidence.CONFIDENCE)
@@ -452,11 +467,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--statement")
     sp.add_argument("--depends-on")
     sp.add_argument("--note")
+    sp.add_argument("--full", action="store_true", help="полный вывод impact")
     sp.set_defaults(fn=cmd_conclusion_update)
+    sp = co.add_parser("review-order", help="выводы needs_review в порядке зависимостей")
+    sp.add_argument("slug")
+    sp.set_defaults(fn=cmd_conclusion_review_order)
 
     sp = add("impact", cmd_impact, "что затронет изменение S###/E###/C###; помечает needs_review")
     sp.add_argument("ids", nargs="+", help="например E005 или S003 (можно несколько)")
     sp.add_argument("--dry-run", action="store_true", help="только показать, не помечать")
+    sp.add_argument("--full", action="store_true", help="полный список строк файл:строка")
     sp = add("validate", cmd_validate, "проверка цитирования и структуры")
     sp.add_argument("--strict", action="store_true", help="предупреждения тоже считаются ошибкой")
 

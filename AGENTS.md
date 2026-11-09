@@ -24,7 +24,7 @@
 | 5 strategy | Продуктовая и коммуникационная стратегии; проверка согласованности субагентом consistency-checker | product-strategy, comms-strategy | product_strategy.md, comms_strategy.md | ⏸ strategy_approved |
 | 6 test_plan | Ожидаемое изменение, с чем сравниваем, срок, нежелательные последствия | research | outputs/test_plan.md | — |
 | 7 decision | Запись решения: основания, ответственные, метрики, условия пересмотра | decision-support | decisions/D###.md | — |
-| 8 monitor | Новые данные → `sa.py impact` → пересмотр затронутых выводов | decision-support | обновлённые outputs | — |
+| 8 monitor | Новые данные → `sa.py impact <slug> <ID>` (кратко; строки — `--full`) → `sa.py conclusion review-order <slug>` → пересматривай по порядку через `sa.py conclusion update` → `sa.py decision review <slug>` | decision-support | обновлённые outputs | — |
 
 На воротах ⏸ ставь `stage_status: awaiting_human`, коротко покажи суть и **жди решения человека**.
 

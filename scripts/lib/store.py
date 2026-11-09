@@ -48,6 +48,11 @@ def now_iso() -> str:
     return _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat(timespec="seconds")
 
 
+def now_precise() -> str:
+    """Время с микросекундами — для сравнения «до/после» внутри одной секунды (волны пересмотра)."""
+    return _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat(timespec="microseconds")
+
+
 def today() -> _dt.date:
     return _dt.date.today()
 

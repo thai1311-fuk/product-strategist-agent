@@ -40,6 +40,7 @@ description: Анализ таблиц и количественные оцен�
    python3 scripts/analysis/unit_econ.py --arpu 350 --churn 6% --cac 1200 --margin 0.55 --horizon 24 --out projects/<slug>/data/unit_econ_scn.md
    python3 scripts/analysis/ab_size.py --baseline 4.2% --mde-rel 10% --daily 5000 --variants 2 --out projects/<slug>/data/ab_size.md
    ```
+   Непрерывная метрика (выручка на пользователя, чек): `ab_size.py --metric mean --mean 1200 --sd 2400 --mde-rel 5% --daily 3000` (или `--cv 1.5`). SD неизвестно — без `--sd/--cv` скрипт даст сценарии CV 1.0/1.5/2.0. Сценарий выбирай по SD из истории за 4–8 недель. Хвосты режь заранее записанным правилом: винзоризация, log(1+x), CUPED или разложение «доля платящих × чек». Результат после теста подтверждай бутстрэпом.
    Имена столбцов отличаются — `--user-col`, `--date-col`, `--step-col`, `--map revenue=выручка,…`. Доли — `0.06` или `6%`; «6» без знака скрипт отвергнет.
 5. **Результат → доказательство типа estimate** (источник — таблица, цитата — строка `ИТОГ` из отчёта, locator — путь к отчёту):
    ```bash

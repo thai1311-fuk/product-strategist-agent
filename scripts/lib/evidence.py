@@ -724,6 +724,8 @@ def update_conclusion(pdir: Path, cid: str, status: str | None = None, statement
         if note is not None:
             rec["note"] = note
         rec["updated_at"] = store.now_iso()
+        if status and status != "needs_review":
+            rec["reviewed_at"] = store.now_precise()  # отметка пересмотра (для волны impact)
         store.write_jsonl(path, rows)
     store.log_action(pdir, "conclusion_update", cid, detail=f"status={rec['status']}; {note or ''}")
     return rec

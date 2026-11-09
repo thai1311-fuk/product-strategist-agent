@@ -416,5 +416,52 @@ class TestLiveRunFixes(Base):
             self.assertEqual(notes["domains"], ["airalo.com"])
 
 
+class TestReviewWave(Base):
+    """Краткий impact, порядок пересмотра, волна пересмотра, доказательства без источника."""
+
+    def test_impact_brief_by_default_full_on_request(self):
+        self.seed()
+        lines = "\n".join(f"Строка {i}: доля 23% [E001], вывод [C001]." for i in range(200))
+        (self.pdir / "outputs" / "situation.md").write_text(lines + "\n", encoding="utf-8")
+        r = self.sa("impact", "demo", "S001", "--dry-run")
+        self.assertLessEqual(len(r.stdout.splitlines()), 40)
+        self.assertIn("outputs/situation.md — 200 мест", r.stdout)
+        self.assertIn("--full", r.stdout)
+        self.assertNotIn("situation.md:150", r.stdout)
+        r = self.sa("impact", "demo", "S001", "--dry-run", "--full")
+        self.assertIn("outputs/situation.md:150", r.stdout)
+
+    def test_review_order_topological(self):
+        self.seed()  # C002 зависит от C001
+        impact.run(self.pdir, ["E001", "E002"], quiet=True)
+        order, cyclic = impact.review_order(self.pdir)
+        ids = [c["id"] for c in order]
+        self.assertLess(ids.index("C001"), ids.index("C002"))
+        self.assertEqual(cyclic, [])
+        r = self.sa("conclusion", "review-order", "demo")
+        self.assertLess(r.stdout.index("C001"), r.stdout.index("C002"))
+
+    def test_update_does_not_remark_reviewed_in_same_wave(self):
+        self.seed()
+        impact.run(self.pdir, ["E001"], quiet=True)  # волна: C001, C002 → needs_review
+        self.sa("conclusion", "update", "demo", "C002", "--status", "active", "--note", "проверен")
+        r = self.sa("conclusion", "update", "demo", "C001", "--status", "revised", "--statement", "Сегмент растёт медленнее")
+        self.assertIn("уже пересмотрены в этой волне: C002", r.stdout)
+        C = store.by_id(store.read_jsonl(self.pdir / "conclusions.jsonl"))
+        self.assertEqual(C["C002"]["status"], "active")
+        self.assertTrue(C["C002"]["reviewed_at"])
+        impact.run(self.pdir, ["E001"], quiet=True)  # новая волна — снова на пересмотр
+        C = store.by_id(store.read_jsonl(self.pdir / "conclusions.jsonl"))
+        self.assertEqual(C["C002"]["status"], "needs_review")
+
+    def test_estimate_and_assumption_without_source(self):
+        self.sa("evidence", "add", "demo", "--claim", "Рынок ~1 млрд", "--type", "estimate")
+        self.sa("evidence", "add", "demo", "--claim", "Цены стабильны", "--type", "assumption", "--source")
+        self.sa("evidence", "add", "demo", "--claim", "Спрос есть", "--type", "hypothesis", "--source", "")
+        rows = store.read_jsonl(self.pdir / "evidence.jsonl")
+        self.assertEqual([r["source_ids"] for r in rows], [[], [], []])
+        self.sa("evidence", "add", "demo", "--claim", "x", "--type", "fact", "--source", ok=False)
+
+
 if __name__ == "__main__":
     unittest.main()

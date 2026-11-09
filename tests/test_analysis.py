@@ -173,6 +173,29 @@ class TestAbSize(unittest.TestCase):
         self.assertGreater(ab_size.sample_size(0.10, 0.02, comparisons=2), ab_size.sample_size(0.10, 0.02))
         self.assertGreater(ab_size.sample_size(0.10, 0.02, power=0.9), ab_size.sample_size(0.10, 0.02))
 
+    def test_mean_reference(self):
+        # эталон G*Power (t-тест, две независимые группы, α=0,05 двустор., мощность 0,8): d=0,5 → 64; d=0,2 → 394
+        self.assertEqual(ab_size.sample_size_mean(1.0, 0.5), 64)
+        self.assertEqual(ab_size.sample_size_mean(1.0, 0.2), 394)
+        # масштабная инвариантность: среднее 1200, SD 2400, эффект 5 % → d = 0,025
+        self.assertEqual(ab_size.sample_size_mean(2400, 60), ab_size.sample_size_mean(1.0, 0.025))
+        self.assertGreater(ab_size.sample_size_mean(1.0, 0.2, comparisons=2), 394)
+
+    def test_mean_cli_scenarios(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "abm.md"
+            r = run("ab_size.py", "--metric", "mean", "--mean", "1200", "--mde-abs", "60", "--daily", "3000", "--out", str(out))
+            self.assertEqual(r.returncode, 0, r.stderr)
+            text = out.read_text(encoding="utf-8")
+        for cv in ("CV 1,0", "CV 1,5", "CV 2,0"):
+            self.assertIn(cv, text)
+        self.assertIn("25 118", text)        # CV 2,0 → d = 0,025
+        self.assertIn("бутстрэп", text)
+        self.assertIn("CUPED", text)
+        r = run("ab_size.py", "--metric", "mean", "--mde-rel", "5%")
+        self.assertEqual(r.returncode, 2)    # нет --mean — понятная ошибка
+        self.assertNotIn("Traceback", r.stderr)
+
     def test_duration_whole_weeks(self):
         d = ab_size.duration(3841, 2, 1000)
         self.assertEqual((d["days_raw"], d["weeks"], d["days"]), (8, 2, 14))
