@@ -1,0 +1,56 @@
+{
+  "_comment": "Allowlist открытых источников для sa.py source fetch и WebFetch (проверка: scripts/lib/sanitize.py:check_url). Домен разрешает и все свои поддомены (megafon.ru → moskva.megafon.ru), но не похожие домены (evil-megafon.ru). Запреты из 'deny' сильнее разрешений. Добавить домен: впишите его в allow.user_added.domains и причину в allow.user_added.notes (см. docs/SECURITY.md). В Claude Code правка этого файла требует подтверждения человека.",
+  "version": 1,
+  "allow": {
+    "megafon_public": {
+      "description": "Открытые публичные страницы МегаФона (тарифы, новости, раскрытие информации). Личный кабинет и внутренние сервисы запрещены через deny.host_labels.",
+      "domains": ["megafon.ru", "moskva.megafon.ru", "corp.megafon.ru"]
+    },
+    "company_official": {
+      "description": "Официальные сайты компаний рынка и раскрытие отчётности.",
+      "domains": ["mts.ru", "beeline.ru", "t2.ru", "tele2.ru", "rt.ru", "rostelecom.ru", "yota.ru",
+                  "vk.company", "sberbank.com", "sber.ru", "tbank.ru", "e-disclosure.ru", "moex.com"]
+    },
+    "gov_stats": {
+      "description": "Госстатистика и официальные ведомства.",
+      "domains": ["rosstat.gov.ru", "gks.ru", "fedstat.ru", "minfin.gov.ru", "economy.gov.ru",
+                  "digital.gov.ru", "rkn.gov.ru", "government.ru", "pravo.gov.ru"]
+    },
+    "central_bank": {
+      "description": "Банк России: статистика, обзоры, нормативы.",
+      "domains": ["cbr.ru"]
+    },
+    "research_media": {
+      "description": "Открытые исследования, аналитика и деловые СМИ.",
+      "domains": ["rbc.ru", "vc.ru", "habr.com", "kommersant.ru", "tadviser.ru", "mediascope.net",
+                  "vedomosti.ru", "forbes.ru", "interfax.ru", "tass.ru", "cnews.ru", "comnews.ru",
+                  "telecomdaily.ru", "sostav.ru", "adindex.ru", "hse.ru", "wciom.ru", "fom.ru",
+                  "gsma.com", "itu.int", "oecd.org", "worldbank.org", "datareportal.com",
+                  "ourworldindata.org", "cyberleninka.ru", "arxiv.org", "wikipedia.org"]
+    },
+    "app_stores": {
+      "description": "Магазины приложений: описания и открытые отзывы.",
+      "domains": ["apps.apple.com", "play.google.com", "rustore.ru", "appgallery.huawei.com"]
+    },
+    "user_added": {
+      "description": "Домены, добавленные пользователем. Только открытые источники без входа по логину.",
+      "notes": ["формат: домен — зачем нужен — кто добавил — дата"],
+      "domains": []
+    }
+  },
+  "deny": {
+    "hosts": ["drive.google.com", "docs.google.com", "dropbox.com", "dropboxusercontent.com",
+              "disk.yandex.ru", "disk.yandex.com", "disk.360.yandex.ru", "yadi.sk", "cloud.mail.ru",
+              "onedrive.live.com", "1drv.ms", "sharepoint.com", "box.com", "wetransfer.com", "we.tl",
+              "mega.nz", "pastebin.com", "files.fm", "sendspace.com", "transfer.sh", "file.io",
+              "bit.ly", "clck.ru", "tinyurl.com", "goo.gl", "t.co", "cutt.ly"],
+    "suffixes": [".local", ".localhost", ".internal", ".intranet", ".corp", ".lan", ".home",
+                 ".localdomain", ".arpa", ".test", ".invalid", ".example"],
+    "host_labels": ["intranet", "internal", "vpn", "sso", "adfs", "jira", "confluence", "gitlab",
+                    "owa", "webmail", "lk", "login", "auth", "passport", "account", "accounts", "admin"],
+    "query_params": ["token", "access_token", "refresh_token", "id_token", "auth", "auth_token",
+                     "apikey", "api_key", "key", "secret", "client_secret", "password", "pass", "pwd",
+                     "sig", "signature", "x-amz-signature", "x-amz-credential", "x-goog-signature",
+                     "sessionid", "session", "sid", "jwt"]
+  }
+}

@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="$lang">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="generator" content="mgimo-strategist / scripts/lib/report.py">
+<title>$title — отчёт</title>
+<style>
+/* Отчёт для руководителя. Без внешних ресурсов: открывается офлайн, печатается в PDF. */
+:root {
+  --bg: #fbfaf7; --paper: #ffffff; --ink: #1d1f23; --muted: #646a73; --line: #e2e0da;
+  --accent: #1f5f8b; --accent-soft: #e6eff6;
+  --fact: #1f6b46; --fact-bg: #e5f2ea;
+  --estimate: #2d5f8f; --estimate-bg: #e4edf6;
+  --hyp: #8a5a00; --hyp-bg: #fbf0d9;
+  --forecast: #6b3fa0; --forecast-bg: #efe7f8;
+  --assume: #5c6670; --assume-bg: #eceef0;
+  --synth: #a33a5a; --synth-bg: #f8e4ea;
+  --warn: #a5361f; --warn-bg: #fbe8e3;
+  --review: #8a5a00; --review-bg: #fff4d6;
+  --ok: #1f6b46;
+  --measure: 70ch;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a; --paper: #1c1f23; --ink: #e6e4df; --muted: #9aa1aa; --line: #33373d;
+    --accent: #7fb3da; --accent-soft: #1f2d38;
+    --fact: #7cc9a0; --fact-bg: #1c2e25;
+    --estimate: #8fb8e0; --estimate-bg: #1d2a37;
+    --hyp: #e7b65a; --hyp-bg: #3a2f17;
+    --forecast: #c3a2ea; --forecast-bg: #2c2338;
+    --assume: #aab3bc; --assume-bg: #2a2e33;
+    --synth: #ec98b2; --synth-bg: #3a2029;
+    --warn: #f19a85; --warn-bg: #3b221c;
+    --review: #e7b65a; --review-bg: #352b14;
+    --ok: #7cc9a0;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.55 var(--font); font-feature-settings: "tnum" 1;
+}
+.page { max-width: 64rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+a { color: var(--accent); text-underline-offset: 2px; }
+h1, h2, h3, h4, h5, h6 { line-height: 1.25; font-weight: 650; margin: 1.6em 0 .5em; }
+h1 { font-size: 1.9rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+h2 { font-size: 1.4rem; padding-top: .5rem; border-top: 2px solid var(--ink); margin-top: 3rem; }
+h3 { font-size: 1.12rem; }
+h4, h5, h6 { font-size: 1rem; }
+p, ul, ol, blockquote, dl, .prose > * { max-width: var(--measure); }
+ul, ol { padding-left: 1.4em; }
+li { margin: .2em 0; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+code { font-family: var(--mono); font-size: .9em; background: var(--accent-soft); padding: .05em .3em; border-radius: 3px; }
+pre { background: var(--paper); border: 1px solid var(--line); padding: .8rem 1rem; overflow-x: auto; max-width: var(--measure); }
+pre code { background: none; padding: 0; }
+blockquote { margin: 1em 0; padding: .2em 1em; border-left: 3px solid var(--line); color: var(--muted); }
+.muted { color: var(--muted); }
+.small { font-size: .875rem; }
+.nowrap { white-space: nowrap; }
+.break { overflow-wrap: anywhere; }
+.warn { color: var(--warn); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* шапка */
+.kicker { text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; color: var(--muted); margin: 0 0 .5rem; }
+.meta { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1.25rem; margin: 1.25rem 0; max-width: none; }
+.meta dt { color: var(--muted); font-size: .9rem; padding-top: .1em; }
+.meta dd { margin: 0; }
+.meta dd > p:first-child { margin-top: 0; }
+.meta dd > p:last-child { margin-bottom: 0; }
+.meta dd ul { margin: 0; }
+.toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .5rem 2rem; font-size: .92rem;
+  border: 1px solid var(--line); background: var(--paper); padding: .75rem 1.25rem; margin: 1.5rem 0; }
+.toc p { margin: .25rem 0; font-weight: 600; }
+.toc ol { margin: 0; padding-left: 1.2em; }
+.legend { color: var(--muted); }
+
+/* метки и ссылки на реестры */
+.refs { white-space: nowrap; }
+.ref { position: relative; display: inline-block; font: 600 .74rem/1.5 var(--mono); padding: 0 .35em; margin: 0 .08em;
+  border-radius: 3px; text-decoration: none; vertical-align: .08em; border: 1px solid transparent;
+  background: var(--accent-soft); color: var(--accent); cursor: help; }
+.ref-tag { font: 500 .68rem/1 var(--font); margin-left: .35em; text-transform: lowercase; }
+.ref.t-fact { background: var(--fact-bg); color: var(--fact); }
+.ref.t-estimate { background: var(--estimate-bg); color: var(--estimate); }
+.ref.t-hypothesis { background: var(--hyp-bg); color: var(--hyp); border: 1px dashed currentColor; }
+.ref.t-forecast { background: var(--forecast-bg); color: var(--forecast); border: 1px dashed currentColor; }
+.ref.t-assumption { background: var(--assume-bg); color: var(--assume); border: 1px dashed currentColor; }
+.ref.t-synthetic { background: var(--synth-bg); color: var(--synth); border: 1px dashed currentColor; }
+.ref.t-conclusion { background: transparent; color: var(--accent); border: 1px solid currentColor; }
+.ref.t-source { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.ref.t-decision { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
+.ref.st-review { background: var(--review-bg); color: var(--review); border: 1px solid currentColor; }
+.ref.st-inactive { text-decoration: line-through; opacity: .75; }
+.ref.st-flag { border-color: var(--warn); color: var(--warn); }
+.ref.missing { background: var(--warn-bg); color: var(--warn); border: 1px solid currentColor; }
+.ref[data-tip]:hover::after, .ref[data-tip]:focus-visible::after {
+  content: attr(data-tip); position: absolute; z-index: 20; left: 0; top: calc(100% + 6px);
+  width: max-content; max-width: min(28rem, 80vw); white-space: pre-line; text-align: left;
+  font: 400 .84rem/1.45 var(--font); color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 6px; padding: .6rem .75rem;
+  box-shadow: 0 6px 24px rgba(0,0,0,.18); text-transform: none; letter-spacing: 0;
+}
+.tbadge { display: inline-block; font-size: .75rem; padding: .05em .45em; border-radius: 3px; white-space: nowrap;
+  background: var(--accent-soft); color: var(--accent); }
+.tbadge.t-fact { background: var(--fact-bg); color: var(--fact); }
+.tbadge.t-estimate { background: var(--estimate-bg); color: var(--estimate); }
+.tbadge.t-hypothesis { background: var(--hyp-bg); color: var(--hyp); }
+.tbadge.t-forecast { background: var(--forecast-bg); color: var(--forecast); }
+.tbadge.t-assumption { background: var(--assume-bg); color: var(--assume); }
+.tbadge.t-synthetic { background: var(--synth-bg); color: var(--synth); }
+.lbl { font-weight: 650; padding: 0 .25em; border-radius: 3px; }
+.lbl-hypothesis { background: var(--hyp-bg); color: var(--hyp); }
+.lbl-forecast { background: var(--forecast-bg); color: var(--forecast); }
+.lbl-assumption { background: var(--assume-bg); color: var(--assume); }
+.lbl-estimate { background: var(--estimate-bg); color: var(--estimate); }
+.lbl-synthetic { background: var(--synth-bg); color: var(--synth); }
+.pill { display: inline-block; font-size: .75rem; font-weight: 500; padding: .1em .55em; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); vertical-align: .1em; white-space: nowrap; }
+.pill-awaiting_human, .pill-needs_review, .pill-review_due { background: var(--review-bg); color: var(--review); border-color: currentColor; }
+.pill-done, .pill-active { color: var(--ok); }
+.pill-retracted, .pill-revised, .pill-closed { text-decoration: line-through; }
+
+/* блоки */
+.banner-review { background: var(--review-bg); border-left: 4px solid var(--review); padding: .75rem 1rem; margin: 1rem 0; max-width: none; }
+.callout { background: var(--accent-soft); border-left: 4px solid var(--accent); padding: .6rem .9rem; }
+.not-ready { color: var(--muted); border: 1px dashed var(--line); padding: .7rem 1rem; border-radius: 6px; font-style: italic; }
+.not-ready .muted { font-style: normal; }
+.one-pager { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; }
+.op-block { background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: .2rem 1.1rem .8rem; }
+.op-block h3 { margin: .9rem 0 .4rem; font-size: .8rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.op-reco { grid-column: 1 / -1; border-top: 4px solid var(--accent); }
+.op-reco p, .op-reco li { font-size: 1.05rem; }
+.op-now { border-top: 4px solid var(--review); }
+.chosen { font-weight: 600; }
+.op-block:has(table) { grid-column: 1 / -1; }
+.todo { font: 600 .75rem/1.4 var(--mono); color: var(--warn); background: var(--warn-bg); padding: 0 .3em; border-radius: 3px; }
+
+/* прогресс */
+.stages { list-style: none; padding: 0; margin: 1rem 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .4rem; max-width: none; }
+.stages li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .5rem; padding: .45rem .7rem; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--paper); margin: 0; }
+.stages .mark { font-weight: 700; width: 1em; }
+.stages .gate { flex-basis: 100%; font-size: .78rem; color: var(--muted); padding-left: 1.5em; }
+.stages .gate-ok { color: var(--ok); }
+.st-done .mark { color: var(--ok); }
+.st-now { border-color: var(--accent) !important; box-shadow: inset 3px 0 0 var(--accent); }
+.st-now .mark { color: var(--accent); }
+.st-wait { border-color: var(--review) !important; box-shadow: inset 3px 0 0 var(--review); background: var(--review-bg) !important; }
+.st-wait .mark { color: var(--review); }
+.st-todo { color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; margin: 1.25rem 0; max-width: none; }
+.stats div { border-left: 3px solid var(--line); padding-left: .7rem; }
+.stats dt { font-size: .8rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.stats dd { margin: .15rem 0 0; font-weight: 600; }
+
+/* таблицы */
+.table-wrap { overflow-x: auto; margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; background: var(--paper); }
+th, td { text-align: left; vertical-align: top; padding: .45rem .6rem; border-bottom: 1px solid var(--line); }
+thead th { font-weight: 600; font-size: .8rem; color: var(--muted); border-bottom: 2px solid var(--ink); }
+th.num, td.num { text-align: right; }
+.prose table { max-width: none; }
+.registry td blockquote.q { margin: .35rem 0 0; padding: 0 0 0 .6rem; font-size: .85rem; border-left: 2px solid var(--line); }
+tr.row-inactive td { color: var(--muted); }
+tr.row-inactive td:nth-child(3) { text-decoration: line-through; text-decoration-color: var(--muted); }
+tr.row-review td { background: var(--review-bg); }
+tr.row-fail td { background: var(--warn-bg); }
+tr:target td { outline: 2px solid var(--accent); outline-offset: -2px; }
+article.decision:target { outline: 2px solid var(--accent); outline-offset: 4px; }
+.filters { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .75rem 0; }
+.flt { font: inherit; font-size: .85rem; padding: .25rem .6rem; border-radius: 999px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink); cursor: pointer; }
+.flt.is-on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.flt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.costs .bar-cell { min-width: 9rem; white-space: nowrap; }
+.bar { display: inline-block; height: .55rem; background: var(--accent); border-radius: 2px; margin-right: .4rem; vertical-align: middle; }
+.budget { height: .6rem; background: var(--accent-soft); border-radius: 3px; overflow: hidden; max-width: 30rem; margin: .5rem 0; }
+.budget .bar { display: block; height: 100%; margin: 0; }
+.budget.over .bar { background: var(--review); }
+.lead-num { font-size: 1.6rem; font-weight: 650; margin: .3rem 0; }
+details { margin: .75rem 0; }
+summary { cursor: pointer; color: var(--accent); }
+.decision { border-left: 3px solid var(--line); padding-left: 1rem; margin: 1.25rem 0; }
+.decision h3 { margin-top: .25rem; }
+.dec-review_due { border-left-color: var(--review); }
+.revisions { list-style: none; padding: 0; }
+.revisions li { padding: .35rem 0; border-bottom: 1px solid var(--line); }
+.appendix-title { margin-top: 4rem; font-size: 1.6rem; }
+footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+
+@media (max-width: 40rem) {
+  .page { padding: 1.5rem 1rem 3rem; }
+  h1 { font-size: 1.5rem; }
+  .meta { grid-template-columns: 1fr; gap: .1rem; }
+  .meta dt { margin-top: .5rem; }
+}
+
+@media print {
+  :root { --bg: #fff; --paper: #fff; --ink: #000; --muted: #444; --line: #bbb; --measure: none; }
+  body { font-size: 10.5pt; line-height: 1.45; }
+  .page { max-width: none; padding: 0; }
+  .no-print, .filters, .toc { display: none !important; }
+  h2 { break-before: page; break-after: avoid; }
+  #sec-decision h2, #sec-progress h2 { break-before: auto; }
+  h3, h4 { break-after: avoid; }
+  tr, .op-block, .decision, blockquote { break-inside: avoid; }
+  .ref[data-tip]:hover::after, .ref[data-tip]:focus-visible::after { display: none; }
+  .ref { border: 1px solid #999 !important; }
+  .table-wrap { overflow: visible; }
+  a { color: inherit; text-decoration: none; }
+  tr[hidden] { display: table-row !important; }
+  details > summary { display: none; }
+  @page { margin: 16mm 14mm; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+<header>
+  <p class="kicker">Стратег Фабрики продуктов · отчёт для руководителя</p>
+  <h1>$title</h1>
+  $header
+  $banner
+  <nav class="toc" aria-label="Содержание">
+    <div><p>Отчёт</p><ol>$toc_main</ol></div>
+    <div><p>Приложение</p><ol>$toc_appendix</ol></div>
+  </nav>
+  $legend
+</header>
+<main>
+$main
+<h2 class="appendix-title" id="appendix">Приложение: основания и прозрачность</h2>
+$appendix
+</main>
+<footer>
+  Сформировано $generated · проект <code>$project</code> · собрано командой <code>python3 scripts/sa.py report $project</code> из файлов проекта.
+  Ссылки E — доказательства, C — выводы, S — источники, D — решения. Пунктирная рамка — гипотеза, прогноз, допущение или синтетические данные: они не доказывают выводы сами по себе.
+</footer>
+</div>
+<script>
+/* Только переключение видимости строк; данные в DOM не вставляются. */
+(function () {
+  var table = document.getElementById("evidence-table");
+  if (!table) return;
+  var buttons = document.querySelectorAll(".flt");
+  var inactive = document.getElementById("show-inactive");
+  var empty = document.getElementById("evidence-empty");
+  var current = "all";
+  function apply() {
+    var showInactive = !inactive || inactive.checked;
+    var rows = table.querySelectorAll("tbody tr");
+    var visible = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var ok = (current === "all" || r.getAttribute("data-type") === current) &&
+               (showInactive || r.getAttribute("data-status") === "active");
+      r.hidden = !ok;
+      if (ok) visible++;
+    }
+    if (empty) empty.hidden = visible !== 0;
+  }
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener("click", function () {
+      current = this.getAttribute("data-filter");
+      for (var j = 0; j < buttons.length; j++) {
+        var on = buttons[j] === this;
+        buttons[j].classList.toggle("is-on", on);
+        buttons[j].setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      apply();
+    });
+  }
+  if (inactive) inactive.addEventListener("change", apply);
+  /* Переход по якорю на скрытую строку — сбросить фильтр. */
+  window.addEventListener("hashchange", function () {
+    var t = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (t && t.hidden) { current = "all"; if (inactive) inactive.checked = true; buttons[0].click(); t.scrollIntoView(); }
+  });
+  /* При печати раскрыть свёрнутые блоки и показать все строки. */
+  window.addEventListener("beforeprint", function () {
+    var d = document.querySelectorAll("details");
+    for (var k = 0; k < d.length; k++) d[k].open = true;
+  });
+})();
+</script>
+</body>
+</html>
