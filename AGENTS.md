@@ -45,3 +45,4 @@
 - Шаблоны результатов: `templates/`.
 - Скиллы (процедуры): `.claude/skills/`; субагенты: `.claude/agents/`.
 - Безопасность: `docs/SECURITY.md`.
+- MCP: сервер `strategist` (`scripts/mcp_server.py`, подключён через `.mcp.json` и `.cursor/mcp.json`) даёт инструменты `sa_*` — те же команды, что `sa.py`; если инструменты доступны, вызывай их вместо shell. Ворота, бюджет и allowlist через MCP недоступны намеренно — это решения человека: только `sa.py gate|budget|allow` после его прямого ответа в чате.

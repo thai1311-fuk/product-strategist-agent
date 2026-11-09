@@ -151,3 +151,4 @@ def scan_secrets(text: str) -> list[str]                # найденные т�
 - `gate` сам переводит этап: plan_approved → collect, option_chosen → strategy, strategy_approved → test_plan.
 - `impact` по умолчанию — краткая сводка, `--full` — все места файл:строка. `conclusion review-order <slug>` — выводы needs_review в порядке зависимостей. В conclusions.jsonl поля `review_wave` (начало волны пересмотра) и `reviewed_at`.
 - `ab_size.py --metric mean` — размер выборки для непрерывных метрик (выручка), сценарии CV при неизвестном SD.
+- MCP: `scripts/mcp_server.py` (stdlib, JSON-RPC 2.0 по stdio), 12 инструментов `sa_*`; gate/budget/allow не выставляются. Подключение: `.mcp.json`, `.cursor/mcp.json`. Переменная `SA_ACTOR` задаёт actor в журнале (mcp, hook, …).

@@ -243,6 +243,8 @@ def log_action(pdir: Path, action: str, target: str = "", ok: bool = True, detai
                actor: str = "cli", session: str | None = None, key: str | None = None) -> bool:
     """Пишет событие в log/actions.jsonl. Если key уже есть — не дублирует (идемпотентность)."""
     path = pdir / "log" / "actions.jsonl"
+    if actor == "cli":  # кто вызвал CLI-функции: cli по умолчанию, mcp — из MCP-сервера
+        actor = os.environ.get("SA_ACTOR", "cli")
     row = {"ts": now_iso(), "session": session or os.environ.get("SA_SESSION", "cli"), "actor": actor,
            "action": action, "target": truncate(target, 300), "ok": bool(ok),
            "key": key or f"{action}:{target}:{now_iso()}", "detail": truncate(detail, 500)}

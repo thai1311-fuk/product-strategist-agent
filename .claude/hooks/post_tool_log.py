@@ -66,8 +66,8 @@ def main() -> None:
     if not isinstance(ti, dict):
         ti = {}
     raw_target = target_of(tool, ti)
-    if tool == "Bash" and "scripts/sa.py" in raw_target:
-        return
+    if (tool == "Bash" and "scripts/sa.py" in raw_target) or tool.startswith("mcp__strategist__"):
+        return  # CLI и MCP-сервер «strategist» журналируют свои действия сами
     m = PROJ_RE.search(raw_target)
     pdir = None
     if m and (store.projects_dir() / m.group(1) / "state.json").exists():
