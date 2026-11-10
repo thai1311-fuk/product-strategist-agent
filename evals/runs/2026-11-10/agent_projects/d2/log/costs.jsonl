@@ -1,0 +1,2 @@
+{"ts": "2026-11-10T14:25:41+03:00", "stage": "plan", "model": "claude-sonnet-5-5", "input_tokens": 60000, "output_tokens": 9000, "usd": 0.315, "source": "manual", "note": "intake+plan, оценка"}
+{"ts": "2026-11-10T15:45:27+03:00", "stage": "options", "model": "claude-opus-5-5", "input_tokens": 40000, "output_tokens": 8000, "usd": 0.4, "source": "manual", "note": "critic"}

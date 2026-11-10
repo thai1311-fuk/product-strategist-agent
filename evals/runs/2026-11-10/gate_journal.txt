@@ -1,0 +1,9 @@
+2026-11-10T11:18:47Z repo=repo slug=volna-retention gate=plan_approved  actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+2026-11-10T11:18:47Z repo=repo_b slug=orbita-kassa-2027 gate=plan_approved  actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+2026-11-10T11:18:47Z repo=repo_d1 slug=lingvobot-b2b gate=plan_approved  actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+2026-11-10T11:18:47Z repo=repo_d2 slug=lingvobot-b2b gate=plan_approved  actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+--- перезапуск d1,d2 (оператор положил new_fact.md в inputs/d, агенты прочли) ---
+2026-11-10T11:26:06Z repo=repo_d1 slug=lingvobot-b2b gate=plan_approved  actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+2026-11-10T11:26:06Z repo=repo_d2 slug=lingvobot-b2b gate=plan_approved  actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+2026-11-10T12:45:55Z repo=repo_d2 slug=lingvobot-b2b gate=option_chosen --value C007 actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)
+2026-11-10T12:46:56Z repo=repo_d1 slug=lingvobot-b2b gate=option_chosen --value C007 actor=evaluator (решение оценщика без чтения, по протоколу бенчмарка)

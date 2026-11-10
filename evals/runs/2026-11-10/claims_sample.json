@@ -1,0 +1,76 @@
+{
+ "a_agent": {
+  "sampled": 20,
+  "with_source": 10,
+  "checkable": 2,
+  "numbers_found_in_cited_source": 2,
+  "flagged": []
+ },
+ "a_chat": {
+  "sampled": 20,
+  "with_source": 8,
+  "checkable": 6,
+  "numbers_found_in_cited_source": 6,
+  "flagged": []
+ },
+ "b_agent": {
+  "sampled": 20,
+  "with_source": 13,
+  "checkable": 4,
+  "numbers_found_in_cited_source": 3,
+  "flagged": [
+   [
+    "- Главный барьер — приём карт: нужен 26 заявкам из 57, продукт его не умеет [1][2] —.",
+    "product_onepager.md",
+    [
+     "26",
+     "57"
+    ]
+   ]
+  ]
+ },
+ "b_chat": {
+  "sampled": 20,
+  "with_source": 13,
+  "checkable": 10,
+  "numbers_found_in_cited_source": 10,
+  "flagged": []
+ },
+ "d1_agent": {
+  "sampled": 20,
+  "with_source": 10,
+  "checkable": 8,
+  "numbers_found_in_cited_source": 8,
+  "flagged": []
+ },
+ "d2_agent": {
+  "sampled": 20,
+  "with_source": 6,
+  "checkable": 2,
+  "numbers_found_in_cited_source": 1,
+  "flagged": [
+   [
+    "Известно только заявленное: 690 ₽ за место [3] и минимальный контракт 414 000 ₽ [1].",
+    "competitor_page.html",
+    [
+     "414000"
+    ]
+   ]
+  ]
+ },
+ "d_chat": {
+  "sampled": 20,
+  "with_source": 11,
+  "checkable": 10,
+  "numbers_found_in_cited_source": 9,
+  "flagged": [
+   [
+    "Числа рынка у [1] внутренне не сходятся (раздел 1.2).",
+    "report_alpha.md",
+    [
+     "1.2"
+    ]
+   ]
+  ]
+ }
+}
