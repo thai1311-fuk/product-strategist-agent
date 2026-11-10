@@ -3,16 +3,16 @@
   "title": "Кому продавать eSIM для зарубежных поездок в приложении оператора и что говорить аудитории на занятом рынке",
   "stage": "monitor",
   "stage_status": "in_progress",
-  "next_step": "решение руководителя по дизайну пилота (салон); пересмотр 2026-12-15",
+  "next_step": "Ждать согласования юристами текста заглушки и письменной позиции по салону (до 01.12.2026); окно T1 01.12–11.12; ворота пилота 15.12.2026",
   "open_questions": [],
   "gates": {
     "plan_approved": true,
     "option_chosen": "C011",
     "strategy_approved": true
   },
-  "budget_usd": 15.0,
+  "budget_usd": 20.0,
   "created_at": "2026-11-09T11:54:15+03:00",
-  "updated_at": "2026-11-09T16:05:30+03:00",
+  "updated_at": "2026-11-10T15:50:24+03:00",
   "history": [
     {
       "ts": "2026-11-09T11:54:15+03:00",
@@ -228,6 +228,61 @@
       "ts": "2026-11-09T16:05:30+03:00",
       "stage": "monitor",
       "event": "monitor/in_progress → monitor/in_progress"
+    },
+    {
+      "ts": "2026-11-10T14:18:34+03:00",
+      "stage": "monitor",
+      "event": "impact E143: на пересмотр C003, C009, C010, C011, C013, C014, C015, C016, C017, C018, C019, C020, C022, C023"
+    },
+    {
+      "ts": "2026-11-10T14:18:35+03:00",
+      "stage": "monitor",
+      "event": "impact E111: на пересмотр C002"
+    },
+    {
+      "ts": "2026-11-10T14:25:19+03:00",
+      "stage": "monitor",
+      "event": "impact C003: на пересмотр C024"
+    },
+    {
+      "ts": "2026-11-10T15:48:34+03:00",
+      "stage": "strategy",
+      "event": "monitor/in_progress → strategy/awaiting_human: стратегии переписаны под модель заявка → салон (2026-11-10); ждём утверждения руководителем"
+    },
+    {
+      "ts": "2026-11-10T15:49:32+03:00",
+      "stage": "strategy",
+      "event": "ворота strategy_approved = False (решение: human)"
+    },
+    {
+      "ts": "2026-11-10T15:49:32+03:00",
+      "stage": "strategy",
+      "event": "ворота strategy_approved = True (решение: human)"
+    },
+    {
+      "ts": "2026-11-10T15:49:32+03:00",
+      "stage": "test_plan",
+      "event": "strategy/awaiting_human → test_plan/in_progress (после ворот strategy_approved)"
+    },
+    {
+      "ts": "2026-11-10T15:49:32+03:00",
+      "stage": "test_plan",
+      "event": "бюджет 15.0 → 20.0 USD: Решение руководителя (пользователь) 10.11: перерасход из-за переделки по внешнему аудиту"
+    },
+    {
+      "ts": "2026-11-10T15:50:16+03:00",
+      "stage": "test_plan",
+      "event": "test_plan/in_progress → test_plan/done: test_plan согласован с решениями руководителя (стратегии утверждены, письменная позиция юристов — условие старта)"
+    },
+    {
+      "ts": "2026-11-10T15:50:18+03:00",
+      "stage": "decision",
+      "event": "test_plan/done → decision/done: D002 записано, D001 → revised"
+    },
+    {
+      "ts": "2026-11-10T15:50:20+03:00",
+      "stage": "monitor",
+      "event": "decision/done → monitor/in_progress"
     }
   ],
   "demo": true

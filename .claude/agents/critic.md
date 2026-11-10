@@ -1,6 +1,6 @@
 ---
 name: critic
-description: "Красная команда" для вариантов (outputs/options.md) и стратегий (product_strategy.md, comms_strategy.md). Вызывать на этапе 4 options до показа вариантов руководителю и на этапе 5 strategy до ворот strategy_approved. Даёт 2–3 сильнейших возражения на каждый вариант, pre-mortem и проверку доказательности. Файлы не правит.
+description: Красная команда для вариантов (outputs/options.md) и стратегий (product_strategy.md, comms_strategy.md). Вызывать на этапе 4 options до показа вариантов руководителю и на этапе 5 strategy до ворот strategy_approved. Даёт 2–3 сильнейших возражения на каждый вариант, pre-mortem и проверку доказательности. Файлы не правит.
 tools: Read, Grep, Glob
 model: opus
 ---
