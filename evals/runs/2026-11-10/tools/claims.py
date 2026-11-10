@@ -1,5 +1,5 @@
 import re,random,glob,json,sys
-B='/private/tmp/claude-501/-Users-thai/fa2237a0-5433-4537-b2e8-397673a95c10/scratchpad/bench-iso/'
+B='<временная-папка>'
 rs=random.SystemRandom()
 mat={'a':glob.glob(B+'inputs/a/materials/*'),'b':glob.glob(B+'inputs/b/materials/*'),'d':glob.glob(B+'inputs/d/materials/*')}
 def mt(case,name):

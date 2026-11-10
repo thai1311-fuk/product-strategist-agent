@@ -69,3 +69,6 @@
 {"ts": "2026-11-09T17:09:30+03:00", "session": "cli", "actor": "agent", "action": "amendment_applied", "target": "S006", "ok": true, "key": "amendment_applied:S006:2026-11-09T17:09:30+03:00", "detail": ""}
 {"ts": "2026-11-09T17:14:20+03:00", "session": "cli", "actor": "cli", "action": "validate", "target": "bench-d", "ok": true, "key": "validate:bench-d:2026-11-09T17:14:20+03:00", "detail": "ошибок 0, предупреждений 33"}
 {"ts": "2026-11-10T14:10:26+03:00", "session": "cli", "actor": "human", "action": "demo", "target": "on", "ok": true, "key": "demo:on:2026-11-10T14:10:26+03:00", "detail": ""}
+{"ts": "2026-11-10T16:56:44+03:00", "session": "cli", "actor": "cli", "action": "validate", "target": "bench-d", "ok": false, "key": "validate:bench-d:2026-11-10T16:56:44+03:00", "detail": "ошибок 3, предупреждений 34"}
+{"ts": "2026-11-10T16:56:50+03:00", "session": "cli", "actor": "cli", "action": "validate", "target": "bench-d", "ok": false, "key": "validate:bench-d:2026-11-10T16:56:50+03:00", "detail": "ошибок 3, предупреждений 34"}
+{"ts": "2026-11-10T16:56:50+03:00", "session": "cli", "actor": "cli", "action": "validate", "target": "bench-d", "ok": false, "key": "validate:bench-d:2026-11-10T16:56:50+03:00", "detail": "ошибок 3, предупреждений 34"}

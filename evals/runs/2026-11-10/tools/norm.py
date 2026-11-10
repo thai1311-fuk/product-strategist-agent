@@ -1,5 +1,5 @@
 import re,json,glob,sys
-B='/private/tmp/claude-501/-Users-thai/fa2237a0-5433-4537-b2e8-397673a95c10/scratchpad/bench-iso/'
+B='<временная-папка>'
 SECS=['Ситуация','Варианты','Рекомендация','Риски','Пробелы']
 
 def parse(text):

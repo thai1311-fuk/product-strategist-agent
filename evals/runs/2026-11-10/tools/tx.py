@@ -1,5 +1,5 @@
 import json,sys
-T='/private/tmp/claude-501/-Users-thai/8988dd67-6b93-4927-8f95-a547ddb685a9/tasks/%s.output'
+T='<временная-папка>%s.output'
 PR={'in':3.0,'out':15.0,'cw':3.75,'cr':0.3}
 def load(aid):
     return [json.loads(l) for l in open(T%aid)]

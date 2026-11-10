@@ -1,5 +1,5 @@
 import json,re,glob
-B='/private/tmp/claude-501/-Users-thai/fa2237a0-5433-4537-b2e8-397673a95c10/scratchpad/bench-iso/'
+B='<временная-папка>'
 key=json.loads(open(B+'key/key.json').read().split('}')[0]+'}')
 inv={v:k for k,v in key.items()}
 K={'K1':['1.1','1.2','1.3','1.4','1.5'],'K2':['2.1','2.2','2.3','2.4'],'K3':['3.1','3.2','3.3','3.4','3.5','3.6'],'K4':['4.1','4.2','4.3','4.4']}

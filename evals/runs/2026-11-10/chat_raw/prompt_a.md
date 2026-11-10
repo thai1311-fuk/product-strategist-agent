@@ -75,4 +75,4 @@
 - **iOS** — версия 3.2 запланирована на декабрь.
 
 
-(Файлы данных users.csv и events.csv лежат в /private/tmp/claude-501/-Users-thai/fa2237a0-5433-4537-b2e8-397673a95c10/scratchpad/bench-iso/inputs/a/data/ — для расчётов можешь запускать Python/shell только над ними.)
+(Файлы данных users.csv и events.csv лежат в <временная-папка> — для расчётов можешь запускать Python/shell только над ними.)
