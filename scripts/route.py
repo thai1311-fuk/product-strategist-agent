@@ -55,8 +55,17 @@ def for_stage(stage: str, routing: dict | None = None) -> dict:
 def _result(rule: dict, hits: list, basis: str, routing: dict) -> dict:
     model = rule.get("model") or routing.get("default_model", "")
     m = routing.get("models", {}).get(model, {})
+    level = m.get("level") or cost.tier_for(rule.get("stage") or "", routing)  # cheap/medium/strong
     return {"skill": rule.get("skill"), "stage": rule.get("stage"), "model": model, "alias": m.get("alias"),
-            "tier": m.get("tier"), "matched": hits, "basis": basis}
+            "tier": m.get("tier"), "level": level, "matched": hits, "basis": basis}
+
+
+TIER_ORDER = list(cost.TIERS)
+
+
+def next_tier(level: str) -> str | None:
+    """Уровень выше для эскалации (cheap → medium → strong); для любой модели любого провайдера."""
+    return TIER_ORDER[TIER_ORDER.index(level) + 1] if level in TIER_ORDER[:-1] else None
 
 
 def next_model(model: str, routing: dict | None = None) -> str | None:
@@ -96,7 +105,9 @@ def check_escalation(pdir: Path, stage: str | None = None, record: bool = True) 
 
 
 def format_result(r: dict) -> list[str]:
-    out = [f"Скилл: {r['skill']}; этап: {r['stage']}; модель: {r['model']} ({r.get('tier')}, {r.get('alias')})"]
+    out = [f"Скилл: {r['skill']}; этап: {r['stage']}; уровень: {r.get('level') or '—'}; "
+           f"модель (Anthropic): {r['model']} ({r.get('tier')}, {r.get('alias')}); "
+           f"в другой среде возьмите модель этого уровня из routing.json → providers"]
     out.append("Основание: " + (("слова " + ", ".join(r["matched"])) if r["matched"] else
                                 {"default": "совпадений нет — правило по умолчанию",
                                  "stage": "таблица этапов routing.json"}.get(r["basis"], "—")))

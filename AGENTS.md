@@ -39,6 +39,11 @@
 - Маршрутизация: сбор и извлечение — дешёвая модель (субагент collector), синтез, варианты и стратегия — сильная. Таблица — `config/routing.json`. Если дешёвая модель ошиблась (валидатор/critic нашёл проблему) — повтори шаг на сильной и запиши это.
 - Держись бюджета из `state.json`; при превышении 80 % — предупреди пользователя.
 
+### Любая среда (не только Claude Code)
+- Без хуков (Cursor, Copilot, Windsurf, OpenCode, Codex, Gemini CLI, GigaCode и др.): в начале работы `python3 scripts/sa.py session start <slug>` (= resume + запись в журнал), в конце `python3 scripts/sa.py session end <slug> --model <любое имя> --in N --out N --source estimate|provider`. То же в MCP: `sa_session_start`, `sa_session_end`.
+- Модель выбирай по **уровню** (cheap / medium / strong) из `config/routing.json` → `stage_tiers` и `providers`, а не по имени конкретного провайдера.
+- Нет субагентов — выполняй роль из `.claude/agents/<имя>.md` отдельным шагом или чатом; процедуры `.claude/skills/*/SKILL.md` — обычные инструкции. Подробности — `docs/PORTABILITY.md`.
+
 ## Удобство
 - Показывай прогресс: «Этап 2/8 — сбор: 7 источников, 23 доказательства».
 - Пользователь может в любой момент сказать «стоп», «уточни задачу», «исправь вывод C004» — выполняй, не начиная заново.

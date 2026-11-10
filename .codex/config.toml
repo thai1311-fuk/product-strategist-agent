@@ -1,0 +1,6 @@
+# Проектный конфиг Codex CLI (действует только в доверенных проектах).
+# Если проектный файл не подхватился — скопируйте блок в ~/.codex/config.toml.
+# AGENTS.md Codex читает сам.
+[mcp_servers.strategist]
+command = "python3"
+args = ["scripts/mcp_server.py"]

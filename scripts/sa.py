@@ -331,11 +331,13 @@ def cmd_decision_review(a):
 # ---------- расходы, журнал, отчёт ----------
 
 def cmd_cost_add(a):
-    rec = cost.add(_p(a), a.model, a.inp, a.out, a.stage, a.note or "", a.source, a.cache_read, a.cache_write, a.key)
+    rec = cost.add(_p(a), a.model, a.inp, a.out, a.stage, a.note or "", a.source, a.cache_read, a.cache_write, a.key, a.tier)
     if rec.get("duplicate"):
         print(f"Запись с ключом {a.key} уже есть — пропущено (идемпотентно): ${rec['usd']:.4f}")
         return
     print(f"Записано: {rec['model']} на этапе {rec['stage']}: ${rec['usd']:.4f}")
+    if rec.get("warning"):
+        print(f"! {rec['warning']}")
     s = cost.summary(_p(a))
     if s["share"] >= 0.8:
         print(f"⚠ Израсходовано {s['share'] * 100:.0f}% бюджета — предупредите пользователя.")
@@ -343,6 +345,46 @@ def cmd_cost_add(a):
 
 def cmd_cost_report(a):
     print("\n".join(cost.report(_p(a))))
+
+
+def _session_actor() -> str:
+    return os.environ.get("SA_ACTOR") or "agent"
+
+
+def cmd_session_start(a):
+    """Замена хука SessionStart для сред без хуков: сводка resume + запись начала сессии в журнал."""
+    pdir = _p(a)
+    print("\n".join(state.resume_lines(pdir)))
+    store.log_action(pdir, "session_start", pdir.name, actor=_session_actor(),
+                     detail=a.note or "", key=f"session_start:{pdir.name}:{os.urandom(4).hex()}")
+    print(f"Сессия начата ({_session_actor()}). По окончании: python3 scripts/sa.py session end {pdir.name} "
+          f"--model … --in N --out N")
+
+
+def cmd_session_end(a):
+    """Замена хука Stop: обновить updated_at, записать расходы (если переданы), записать конец сессии."""
+    pdir = _p(a)
+    if a.model and (a.inp is None or a.out is None):
+        raise SAError("С --model нужны и --in, и --out (токены входа и выхода).")
+    if not a.model and any(v for v in (a.inp, a.out, a.cache_read, a.cache_write)):
+        raise SAError("Токены переданы без --model: укажите модель (любое имя) и при необходимости --tier.")
+    detail = a.note or ""
+    if a.model:
+        rec = cost.add(pdir, a.model, a.inp, a.out, a.stage, a.note or "", a.source, a.cache_read, a.cache_write,
+                       a.key, a.tier)
+        print(f"Расход записан: {rec['model']} на этапе {rec['stage']}: ${rec['usd']:.4f} (источник: {a.source})")
+        if rec.get("warning"):
+            print(f"! {rec['warning']}")
+        detail = (detail + "; " if detail else "") + f"{rec['model']} in={a.inp} out={a.out} ${rec['usd']:.4f}"
+        s = cost.summary(pdir)
+        if s["share"] >= 0.8:
+            print(f"⚠ Израсходовано {s['share'] * 100:.0f}% бюджета — предупредите пользователя.")
+    else:
+        print("Расходы не переданы: оценку добавьте позже (sa.py cost add …) или повторите session end с --model.")
+    state.touch(pdir)
+    store.log_action(pdir, "session_end", pdir.name, actor=_session_actor(), detail=detail,
+                     key=f"session_end:{pdir.name}:{os.urandom(4).hex()}")
+    print("Сессия завершена: updated_at обновлён, событие записано в журнал.")
 
 
 def cmd_log(a):
@@ -604,19 +646,41 @@ def build_parser() -> argparse.ArgumentParser:
     cs = sub.add_parser("cost", help="расходы").add_subparsers(dest="sub", required=True, metavar="действие")
     sp = cs.add_parser("add", help="записать расход")
     sp.add_argument("slug")
-    sp.add_argument("--model", required=True, help="claude-haiku-5-5 | sonnet | opus …")
+    sp.add_argument("--model", required=True, help="любое имя модели: claude-sonnet-5-5 | opus | GigaChat-2-Pro …")
     sp.add_argument("--in", dest="inp", type=int, required=True, help="входные токены")
     sp.add_argument("--out", dest="out", type=int, required=True, help="выходные токены")
     sp.add_argument("--stage", choices=state.STAGES)
     sp.add_argument("--note")
     sp.add_argument("--cache-read", type=int, default=0, help="токены, прочитанные из кэша")
     sp.add_argument("--cache-write", type=int, default=0, help="токены, записанные в кэш")
-    sp.add_argument("--source", default="manual", choices=["manual", "estimate", "hook"])
+    sp.add_argument("--source", default="manual", choices=["manual", "estimate", "hook", "provider"])
+    sp.add_argument("--tier", choices=cost.TIERS, help="уровень: цена уровня для модели, которой нет в routing.json")
     sp.add_argument("--key", help="идемпотентный ключ: повтор с тем же ключом не дублирует запись")
     sp.set_defaults(fn=cmd_cost_add)
     sp = cs.add_parser("report", help="расходы по этапам и моделям, доля бюджета, время")
     sp.add_argument("slug", nargs="?")
     sp.set_defaults(fn=cmd_cost_report)
+
+    se = sub.add_parser("session", help="начало/конец сессии без хуков (для любых сред)").add_subparsers(
+        dest="sub", required=True, metavar="действие")
+    sp = se.add_parser("start", help="resume + запись начала сессии в журнал (actor: SA_ACTOR или agent)")
+    sp.add_argument("slug", nargs="?")
+    sp.add_argument("--note")
+    sp.set_defaults(fn=cmd_session_start)
+    sp = se.add_parser("end", help="обновить updated_at, записать конец сессии и расходы (если переданы)")
+    sp.add_argument("slug", nargs="?")
+    sp.add_argument("--model", help="любое имя модели (claude-sonnet-5-5, GigaChat-2-Pro, gpt-…)")
+    sp.add_argument("--tier", choices=cost.TIERS, help="уровень: цена уровня, если модели нет в routing.json")
+    sp.add_argument("--in", dest="inp", type=int, help="входные токены")
+    sp.add_argument("--out", dest="out", type=int, help="выходные токены")
+    sp.add_argument("--cache-read", type=int, default=0)
+    sp.add_argument("--cache-write", type=int, default=0)
+    sp.add_argument("--source", default="estimate", choices=["estimate", "provider", "manual"],
+                    help="estimate — оценка; provider — числа из счётчика провайдера")
+    sp.add_argument("--stage", choices=state.STAGES)
+    sp.add_argument("--key", help="идемпотентный ключ расхода")
+    sp.add_argument("--note")
+    sp.set_defaults(fn=cmd_session_end)
 
     sp = add("log", cmd_log, "записать действие в журнал")
     sp.add_argument("--action", required=True)

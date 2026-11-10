@@ -55,6 +55,36 @@ def price(model: str, inp: int, out: int, cache_write: int = 0, cache_read: int 
     return round(usd, 6)
 
 
+TIERS = ("cheap", "medium", "strong")
+
+
+def tier_model(tier: str, routing: dict | None = None) -> str | None:
+    """Модель с ценами для уровня cheap/medium/strong (по полю level в models)."""
+    routing = routing or load_routing()
+    return next((n for n, m in routing.get("models", {}).items() if m.get("level") == tier), None)
+
+
+def provider_price(name: str, inp: int, out: int, routing: dict | None = None) -> float | None:
+    """Цена по providers.*, если у модели с таким именем заполнены обе цены (не null); иначе None."""
+    routing = routing or load_routing()
+    n = (name or "").strip().lower()
+    for prov in routing.get("providers", {}).values():
+        if not isinstance(prov, dict):
+            continue
+        for m in prov.values():
+            if isinstance(m, dict) and str(m.get("model", "")).lower() == n:
+                pi, po = m.get("input_per_mtok"), m.get("output_per_mtok")
+                if pi is not None and po is not None:
+                    return round((inp * pi + out * po) / 1e6, 6)
+    return None
+
+
+def tier_for(stage_or_agent: str, routing: dict | None = None) -> str | None:
+    """Уровень (cheap/medium/strong) этапа или субагента."""
+    routing = routing or load_routing()
+    return routing.get("stage_tiers", {}).get(stage_or_agent) or routing.get("subagent_tiers", {}).get(stage_or_agent)
+
+
 def model_for(stage_or_agent: str, routing: dict | None = None) -> str:
     routing = routing or load_routing()
     return (routing.get("stages", {}).get(stage_or_agent) or routing.get("subagents", {}).get(stage_or_agent)
@@ -62,19 +92,39 @@ def model_for(stage_or_agent: str, routing: dict | None = None) -> str:
 
 
 def add(pdir: Path, model: str, inp: int, out: int, stage: str | None = None, note: str = "",
-        source: str = "manual", cache_read: int = 0, cache_write: int = 0, key: str | None = None) -> dict:
-    """Записать расход. Если задан key и запись с ним уже есть — ничего не пишет и возвращает её (duplicate=True)."""
+        source: str = "manual", cache_read: int = 0, cache_write: int = 0, key: str | None = None,
+        tier: str | None = None) -> dict:
+    """Записать расход. Если задан key и запись с ним уже есть — ничего не пишет и возвращает её (duplicate=True).
+
+    Любое имя модели допустимо. Неизвестная модель: если задан tier (cheap/medium/strong) — цена уровня
+    (модель с таким level в routing.json), иначе 0 и предупреждение (rec['warning'] в ответе, в note записи)."""
     from . import state  # noqa: PLC0415
     if min(inp, out, cache_read, cache_write) < 0:
         raise SAError("Число токенов не может быть отрицательным.")
     routing = load_routing()
+    if tier is not None and tier not in TIERS:
+        raise SAError(f"Уровень модели: {', '.join(TIERS)}.")
     full = resolve_model(model, routing)
-    if not full:
-        raise SAError(f"Модель «{model}» не найдена в config/routing.json. Доступны: {', '.join(routing['models'])}")
     stage = stage or state.load(pdir).get("stage", "intake")
-    rec = {"ts": store.now_iso(), "stage": stage, "model": full,
+    warning, usd, name = "", None, full or (model or "").strip() or "unknown"
+    if full:
+        usd = price(full, inp, out, cache_write, cache_read, routing=routing)
+    else:
+        usd = provider_price(model, inp, out, routing)
+        if usd is None and tier:
+            usd = price(tier_model(tier, routing) or "", inp, out, cache_write, cache_read, routing=routing)
+            if usd is not None:
+                note = (note + "; " if note else "") + f"модель «{name}» не в routing.json — цена уровня {tier}"
+        if usd is None:
+            usd = 0.0
+            warning = (f"Модель «{name}» не найдена в config/routing.json, уровень не указан — расход записан как $0. "
+                       f"Укажите --tier cheap|medium|strong или заполните цены в providers.")
+            note = (note + "; " if note else "") + "цена 0: модель неизвестна, уровень не указан"
+    rec = {"ts": store.now_iso(), "stage": stage, "model": name,
            "input_tokens": int(inp) + int(cache_read) + int(cache_write), "output_tokens": int(out),
-           "usd": price(full, inp, out, cache_write, cache_read, routing=routing), "source": source, "note": note}
+           "usd": usd, "source": source, "note": note}
+    if tier:
+        rec["tier"] = tier
     if cache_read or cache_write:
         rec.update(raw_input=int(inp), cache_read=int(cache_read), cache_write=int(cache_write))
     path = pdir / "log" / "costs.jsonl"
@@ -87,9 +137,9 @@ def add(pdir: Path, model: str, inp: int, out: int, stage: str | None = None, no
                     return dict(r, duplicate=True)
             rows.append(rec)
             store.write_jsonl(path, rows)
-        return rec
+        return dict(rec, warning=warning) if warning else rec
     store.append_jsonl(path, rec)
-    return rec
+    return dict(rec, warning=warning) if warning else rec
 
 
 def _session_in_other_projects(pdir: Path, session: str) -> list[dict]:

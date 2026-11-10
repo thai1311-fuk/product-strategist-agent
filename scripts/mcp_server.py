@@ -120,10 +120,24 @@ TOOLS: dict[str, tuple[str, dict, object]] = {
     "sa_cost_add": ("Записать расход токенов; повтор с тем же key не дублирует.",
                     _obj({"slug": SLUG, "model": S, "input_tokens": INT, "output_tokens": INT, "stage": {"type": "string", "enum": STAGES},
                           "note": S, "cache_read": INT, "cache_write": INT,
-                          "source": {"type": "string", "enum": ["manual", "estimate", "hook"]}, "key": S},
+                          "source": {"type": "string", "enum": ["manual", "estimate", "hook", "provider"]},
+                          "tier": {"type": "string", "enum": ["cheap", "medium", "strong"]}, "key": S},
                          ["slug", "model", "input_tokens", "output_tokens"]),
                     lambda a: ["cost", "add", a["slug"], f"--model={a['model']}", f"--in={a['input_tokens']}",
-                               f"--out={a['output_tokens']}"] + _opt(a, ("stage", "note", "cache_read", "cache_write", "source", "key"))),
+                               f"--out={a['output_tokens']}"] + _opt(a, ("stage", "note", "cache_read", "cache_write", "source", "tier", "key"))),
+    "sa_session_start": ("Начало сессии без хуков: сводка resume + запись session_start в журнал (замена хука SessionStart).",
+                         _obj({"slug": SLUG, "note": S}),
+                         lambda a: ["session", "start"] + ([a["slug"]] if a.get("slug") else []) + _opt(a, ("note",))),
+    "sa_session_end": ("Конец сессии без хуков: обновить updated_at, записать session_end и расходы, если переданы "
+                       "(любое имя модели; tier — цена уровня для неизвестной модели). Замена хука Stop.",
+                       _obj({"slug": SLUG, "model": S, "tier": {"type": "string", "enum": ["cheap", "medium", "strong"]},
+                             "input_tokens": INT, "output_tokens": INT, "cache_read": INT, "cache_write": INT,
+                             "source": {"type": "string", "enum": ["estimate", "provider", "manual"]},
+                             "stage": {"type": "string", "enum": STAGES}, "key": S, "note": S}),
+                       lambda a: ["session", "end"] + ([a["slug"]] if a.get("slug") else [])
+                       + ([f"--in={a['input_tokens']}"] if "input_tokens" in a else [])
+                       + ([f"--out={a['output_tokens']}"] if "output_tokens" in a else [])
+                       + _opt(a, ("model", "tier", "cache_read", "cache_write", "source", "stage", "key", "note"))),
     "sa_evidence_retract": ("Отозвать доказательство (и сразу показать impact).",
                             _obj({"slug": SLUG, "id": S, "reason": S}, ["slug", "id", "reason"]),
                             lambda a: ["evidence", "retract", a["slug"], a["id"], f"--reason={a['reason']}"]),
