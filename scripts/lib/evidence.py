@@ -29,6 +29,7 @@ FETCH_TIMEOUT = 20
 FETCH_MAX_BYTES = 2_000_000
 TEXT_EXT = {".md", ".txt", ".html", ".htm", ".json", ".xml"}
 TABLE_EXT = {".csv", ".tsv"}
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 SYNTHETIC_LABEL = "СИНТЕТИКА — ответы ИИ-респондентов; не доказывают спрос и распространённость"
 USER_AGENT = "mgimo-strategist/1.0 (+research agent; respects allowlist)"
 
@@ -355,6 +356,18 @@ def add_source(pdir: Path, title: str, locator: str, kind: str, reliability: str
                 stored = str(dst.relative_to(pdir))
                 if kind == "web":
                     kind = "table"
+            elif ext in IMAGE_EXT:
+                # Скриншот/изображение: копия в sources/screens/, текст не извлекаем (без OCR-библиотек).
+                # Видимое на экране регистрируется как evidence с locator «область кадра» и quote_verified="visual".
+                data = src.read_bytes()
+                if len(data) > 15 * 1024 * 1024:
+                    raise SAError("Изображение больше 15 МБ — уменьшите или обрежьте его.")
+                dst = pdir / "sources" / "screens" / f"{sid}{ext}"
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                dst.write_bytes(data)
+                stored = str(dst.relative_to(pdir))
+                kind = "image"
+                flags.append("image_visual_check")
             elif ext in TEXT_EXT:
                 text = src.read_text(encoding="utf-8", errors="replace")
             else:
@@ -687,7 +700,14 @@ def add_evidence(pdir: Path, claim: str, etype: str, source_ids: list[str] | Non
         raise SAError(f"Источники {', '.join(blocked)} помечены allowed=false и не могут быть основанием.")
 
     quote_verified = None
-    if quote:
+    image_only = bool(source_ids) and all(sources[s_].get("kind") == "image" for s_ in source_ids)
+    if image_only:
+        # Текст с экрана нельзя сверить без OCR: требуем область кадра, чтобы человек мог проверить по скриншоту.
+        if etype == "fact" and not (locator and locator.strip()):
+            raise SAError("Для факта со скриншота укажите --locator: файл и область кадра, "
+                          "например «screens/S003.png [x 10–90 %, y 20–30 %]».")
+        quote_verified = "visual" if quote else None
+    elif quote:
         texts = [t for t in (_searchable_text(pdir, sources[s_]) for s_ in source_ids) if t]
         if texts:
             quote_verified = any(_norm(quote) in _norm(t) for t in texts)
@@ -713,6 +733,8 @@ def add_evidence(pdir: Path, claim: str, etype: str, source_ids: list[str] | Non
         rows.append(rec)
         store.write_jsonl(path, rows)
     store.log_action(pdir, "evidence_add", eid, detail=f"{etype}: {store.truncate(claim, 120)}", actor=added_by)
+    if quote_verified == "visual":
+        print(f"{eid}: источник — изображение; цитата проверяется визуально по области кадра ({locator}).")
     if quote_verified is False:
         print(f"ВНИМАНИЕ: цитата {eid} не найдена дословно в тексте источника — проверьте формулировку.")
     return rec

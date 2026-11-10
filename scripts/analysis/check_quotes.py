@@ -152,7 +152,11 @@ def check(project: Path, ids=None, since=None) -> list[dict]:
         srcs = e.get("source_ids") or []
         if e.get("type") == "fact" and (not srcs or not r["quote"]):
             r["problems"].append("fact без источника или цитаты")
-        if r["quote"] and srcs:
+        if r["quote"] and srcs and all((srcs_all.get(s) or {}).get("kind") == "image" for s in srcs):
+            # Изображение: текст без OCR не сверить — проверка визуальная, по области кадра в locator.
+            r["warnings"].append("источник — изображение: цитата проверяется визуально по "
+                                 + (e.get("locator") or "области кадра (locator не указан)"))
+        elif r["quote"] and srcs:
             texts = []
             for s in srcs:
                 files = source_files(project, s, srcs_all.get(s))

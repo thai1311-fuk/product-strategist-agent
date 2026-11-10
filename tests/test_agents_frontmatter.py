@@ -53,3 +53,28 @@ class TestFrontmatter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestImageSources(unittest.TestCase):
+    """Скриншоты как источники (аудит №58/59): копия в sources/screens, факт — только с областью кадра."""
+
+    def test_image_source_and_visual_fact(self):
+        import os, subprocess, sys, tempfile, json
+        with tempfile.TemporaryDirectory() as d:
+            env = dict(os.environ, SA_PROJECTS_DIR=d, SA_ACTOR="test")
+            sa = [sys.executable, str(ROOT / "scripts" / "sa.py")]
+            run = lambda *a: subprocess.run(sa + list(a), env=env, capture_output=True, text=True)
+            self.assertEqual(run("new", "img", "--title", "t").returncode, 0)
+            png = Path(d) / "shot.png"
+            png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+            r = run("source", "add", "img", "--title", "Экран", "--kind", "image", "--file", str(png))
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+            self.assertTrue((Path(d) / "img" / "sources" / "screens" / "S001.png").is_file())
+            r = run("evidence", "add", "img", "--claim", "На экране кнопка «Оформить»", "--type", "fact",
+                    "--source", "S001", "--quote", "Оформить")
+            self.assertNotEqual(r.returncode, 0, "факт со скриншота без области кадра должен отклоняться")
+            r = run("evidence", "add", "img", "--claim", "На экране кнопка «Оформить»", "--type", "fact",
+                    "--source", "S001", "--quote", "Оформить", "--locator", "screens/S001.png [x 10–90 %, y 20–30 %]")
+            self.assertEqual(r.returncode, 0, r.stderr + r.stdout)
+            ev = [json.loads(l) for l in (Path(d) / "img" / "evidence.jsonl").read_text().splitlines() if l.strip()]
+            self.assertEqual(ev[-1].get("quote_verified"), "visual")

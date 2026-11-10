@@ -1,0 +1,55 @@
+{
+  "project": "ux-esim",
+  "title": "Почему абонент за границей не доходит до покупки интернета на поездку (UX сайта оператора)",
+  "mode": "fast",
+  "stage": "decision",
+  "stage_status": "done",
+  "next_step": "Мониторинг: диагностика T0, затем A/B T1; пересмотр до 2026-12-10",
+  "open_questions": [],
+  "gates": {
+    "plan_approved": false,
+    "option_chosen": "C005",
+    "strategy_approved": false
+  },
+  "budget_usd": 2.0,
+  "created_at": "2026-11-10T16:00:37+03:00",
+  "updated_at": "2026-11-10T16:55:31+03:00",
+  "history": [
+    {
+      "ts": "2026-11-10T16:00:37+03:00",
+      "stage": "intake",
+      "event": "проект создан (режим fast); шаблоны: brief.md, outputs/research_plan.md, outputs/situation.md, outputs/options.md, outputs/product_strategy.md, outputs/comms_strategy.md, outputs/test_plan.md"
+    },
+    {
+      "ts": "2026-11-10T16:01:18+03:00",
+      "stage": "collect",
+      "event": "intake/in_progress → collect/in_progress"
+    },
+    {
+      "ts": "2026-11-10T16:03:42+03:00",
+      "stage": "options",
+      "event": "collect/in_progress → options/in_progress"
+    },
+    {
+      "ts": "2026-11-10T16:05:49+03:00",
+      "stage": "options",
+      "event": "options/in_progress → options/awaiting_human"
+    },
+    {
+      "ts": "2026-11-10T16:07:09+03:00",
+      "stage": "options",
+      "event": "ворота option_chosen = C005 (решение: human)"
+    },
+    {
+      "ts": "2026-11-10T16:07:09+03:00",
+      "stage": "strategy",
+      "event": "options/awaiting_human → strategy/in_progress (после ворот option_chosen)"
+    },
+    {
+      "ts": "2026-11-10T16:55:31+03:00",
+      "stage": "decision",
+      "event": "strategy/in_progress → decision/done"
+    }
+  ],
+  "demo": true
+}
