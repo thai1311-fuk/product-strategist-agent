@@ -37,9 +37,62 @@ def _p(args) -> Path:
 
 def cmd_new(a):
     pdir = state.create_project(a.slug, a.title, a.budget)
-    print(f"Создан проект {a.slug}: {pdir}")
+    if a.demo:
+        store.set_demo(pdir, True)
+    print(f"Создан проект {a.slug}: {store.rel_path(pdir)}")
     print(f"Дальше: заполните {pdir.name}/brief.md (этап 0 — intake), затем "
           f"python3 scripts/sa.py stage {a.slug} plan --next \"…\"")
+
+
+def cmd_demo(a):
+    pdir = store.project_dir(a.slug)
+    store.set_demo(pdir, a.mode == "on")
+    store.log_action(pdir, "demo", a.mode, actor="human")
+    print(f"{a.slug}: demo = {a.mode} " + ("(пропускается при выборе активного проекта, хуки в него не пишут)"
+                                          if a.mode == "on" else "(обычный проект)"))
+
+
+def cmd_route(a):
+    import route as _route  # noqa: PLC0415
+    pdir = _p(a)
+    if a.escalate:
+        r = _route.check_escalation(pdir, a.stage)
+        print(f"Этап {r['stage']}, модель {r['from']}")
+        if not r["reasons"]:
+            print("Ошибок валидатора и цитат нет — эскалация не нужна.")
+        elif r["escalate"]:
+            print(f"Эскалация: повторите шаг на {r['to']} (записано в журнал: escalate_model)")
+            for x in r["reasons"]:
+                print(f"  - {x}")
+        else:
+            print("Ошибки есть, но модель уже сильнейшая — решение за человеком:")
+            for x in r["reasons"]:
+                print(f"  - {x}")
+        return 1 if r["escalate"] else 0
+    if a.stage:
+        res = _route.for_stage(a.stage)
+    elif a.text:
+        res = _route.classify(a.text)
+    else:
+        raise SAError("Укажите текст запроса, либо --stage <этап>, либо --escalate")
+    print("\n".join(_route.format_result(res)))
+    return 0
+
+
+def cmd_search(a):
+    from lib import search  # noqa: PLC0415
+    if a.index:
+        out = store.ROOT / "knowledge" / "INDEX.md"
+        store.atomic_write_text(out, search.build_index() + "\n")
+        print(f"Оглавление записано: {store.rel_path(out)}")
+        return
+    if a.methods:
+        words = " ".join(filter(None, [a.slug, a.query]))
+        print("\n".join(search.search_methods(words)))
+        return
+    if not a.slug or not a.query:
+        raise SAError("Использование: sa.py search <slug> \"запрос\"  или  sa.py search --methods \"запрос\"")
+    print("\n".join(search.search_project(_p(a), a.query)))
 
 
 def cmd_list(a):
@@ -56,8 +109,8 @@ def cmd_list(a):
             continue
         star = "*" if p == active else " "
         print(f"{star} {p.name:<28} {st.get('stage', '?'):<10} {st.get('stage_status', '?'):<15} "
-              f"{st.get('updated_at', '')[:16]}  {st.get('title', '')}")
-    print("* — активный проект (последний обновлённый)")
+              f"{st.get('updated_at', '')[:16]}  {st.get('title', '')}" + ("  [демо]" if st.get("demo") else ""))
+    print("* — активный проект (последний обновлённый, демо [демо] не считаются)")
 
 
 def cmd_status(a):
@@ -102,6 +155,16 @@ def cmd_budget(a):
 
 
 def cmd_allow(a):
+    # Изменение правил — решение человека: на терминале спрашиваем y/N, без терминала нужен явный --yes
+    # (в Claude Code хук guard.py дополнительно запрашивает подтверждение пользователя).
+    if sys.stdin.isatty():
+        ans = input(f"Добавить {a.domain} в список разрешённых источников? [y/N] ").strip().lower()
+        if ans not in ("y", "yes", "д", "да"):
+            print("Отменено: домен не добавлен.")
+            return
+    elif not getattr(a, "yes", False):
+        raise SystemExit("Отказ: добавление домена требует подтверждения человека — запустите в терминале "
+                         "или с флагом --yes после прямого согласия пользователя в чате.")
     host, status = evidence.allow_domain(a.domain, a.reason)
     if status == "exists":
         print(f"Домен {host} уже разрешён — изменений нет.")
@@ -234,14 +297,21 @@ def cmd_validate(a):
 # ---------- решения ----------
 
 def cmd_decision_add(a):
-    path = decisions.add(_p(a), a.decision, a.owner, a.based_on, a.metric or [], a.review_trigger or [],
-                         a.commitment or [], a.date, a.review_date, a.context or "", a.short_slug)
-    print(f"Решение записано: {path}")
+    pdir = _p(a)
+    dup = decisions.find_duplicate(pdir, a.decision, a.based_on, a.key)
+    path = decisions.add(pdir, a.decision, a.owner, a.based_on, a.metric or [], a.review_trigger or [],
+                         a.commitment or [], a.date, a.review_date, a.context or "", a.short_slug, a.key)
+    if dup:
+        print(f"Такое решение уже записано — новое не создано (идемпотентно): {store.rel_path(path)}")
+        return
+    print(f"Решение записано: {store.rel_path(path)}")
 
 
 def cmd_decision_update(a):
-    path = decisions.update(_p(a), a.id, a.status, a.note or "")
-    print(f"{a.id.upper()}: статус {a.status} ({path.name})")
+    path = decisions.update(_p(a), a.id, a.status, a.note or "", a.review_date)
+    print(f"{a.id.upper()}: " + ", ".join(filter(None, [f"статус {a.status}" if a.status else "",
+                                                       f"следующий пересмотр {a.review_date}" if a.review_date else ""]))
+          + f" ({path.name})")
 
 
 def cmd_decision_review(a):
@@ -251,6 +321,8 @@ def cmd_decision_review(a):
         print("Пересматривать сейчас нечего.")
     for did, f, reasons in res["due"]:
         print(f"⟳ {did} ({f.name}): " + "; ".join(reasons))
+    for did, text, d in res.get("overdue_commitments", []):
+        print(f"! {did}: срок обязательства прошёл ({d}): {store.truncate(text, 100)} — уточните у ответственного")
     if res["upcoming"]:
         print("Плановые пересмотры: " + ", ".join(f"{d} {dt}" + (" (скоро)" if soon else "")
                                              for d, dt, soon in res["upcoming"]))
@@ -259,7 +331,10 @@ def cmd_decision_review(a):
 # ---------- расходы, журнал, отчёт ----------
 
 def cmd_cost_add(a):
-    rec = cost.add(_p(a), a.model, a.inp, a.out, a.stage, a.note or "", a.source, a.cache_read, a.cache_write)
+    rec = cost.add(_p(a), a.model, a.inp, a.out, a.stage, a.note or "", a.source, a.cache_read, a.cache_write, a.key)
+    if rec.get("duplicate"):
+        print(f"Запись с ключом {a.key} уже есть — пропущено (идемпотентно): ${rec['usd']:.4f}")
+        return
     print(f"Записано: {rec['model']} на этапе {rec['stage']}: ${rec['usd']:.4f}")
     s = cost.summary(_p(a))
     if s["share"] >= 0.8:
@@ -287,8 +362,8 @@ def cmd_report(a):
         print(f"ВНИМАНИЕ: валидатор нашёл ошибок: {len(rep.errors)} — отчёт будет собран, но покажите это пользователю "
               f"(sa.py validate {pdir.name}).")
     out = build_report(pdir)
-    store.log_action(pdir, "report", str(out))
-    print(f"Отчёт: {out}")
+    store.log_action(pdir, "report", store.rel_path(out))
+    print(f"Отчёт: {store.rel_path(out)}")
 
 
 def cmd_doctor(a):
@@ -333,6 +408,10 @@ def cmd_doctor(a):
         ok(f"запись в {pdir}")
     except OSError as exc:
         errors.append(f"нет права записи в {pdir}: {exc}")
+    for p in store.list_projects():
+        for rel, n, sample in store.corrupt_report(p):
+            warns.append(f"{p.name}/{rel}: битых строк {n} (сохранены в {rel}.corrupt; пример: {sample}) — "
+                         "восстановите вручную, ID этих записей не переиспользуются")
     for mod, funcs, why in (("lib.sanitize", ("is_allowed_url", "sanitize_text", "scan_secrets"),
                              "без него source fetch откажет, тексты не очищаются"),
                             ("lib.report", ("build_report",), "без него sa.py report недоступен")):
@@ -373,7 +452,20 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("new", cmd_new, "создать проект из шаблонов")
     sp.add_argument("--title", required=True)
     sp.add_argument("--budget", type=float, default=5.0, help="бюджет, USD (по умолчанию 5)")
+    sp.add_argument("--demo", action="store_true", help="демонстрационный проект: не выбирается активным, хуки в него не пишут")
     add("list", cmd_list, "список проектов", slug=None)
+    sp = add("demo", cmd_demo, "пометить/снять пометку демонстрационного проекта")
+    sp.add_argument("mode", choices=["on", "off"])
+    sp = add("route", cmd_route, "какой скилл и модель подходят запросу/этапу; --escalate — проверить, нужна ли сильная модель")
+    sp.add_argument("text", nargs="?", help="текст запроса")
+    sp.add_argument("--stage", choices=state.STAGES)
+    sp.add_argument("--escalate", action="store_true", help="после ошибок validate/цитат рекомендовать модель уровнем выше")
+    sp = sub.add_parser("search", help="поиск по формулировке в проекте или по карточкам методов (--methods)")
+    sp.add_argument("slug", nargs="?")
+    sp.add_argument("query", nargs="?")
+    sp.add_argument("--methods", action="store_true", help="искать по knowledge/methods/")
+    sp.add_argument("--index", action="store_true", help="пересобрать knowledge/INDEX.md")
+    sp.set_defaults(fn=cmd_search)
     add("status", cmd_status, "этап, следующий шаг, вопросы, бюджет, счётчики", slug="opt")
     add("resume", cmd_resume, "краткая сводка для продолжения в новом чате", slug="opt")
     sp = add("stage", cmd_stage, "сменить этап/статус")
@@ -392,6 +484,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp = add("allow", cmd_allow, "добавить домен в allowlist (только после прямого согласия пользователя)", slug=None)
     sp.add_argument("domain")
     sp.add_argument("--reason", required=True, help="зачем нужен источник")
+    sp.add_argument("--yes", action="store_true", help="без терминала: подтверждение человека уже получено в чате")
     sp = add("question", cmd_question, "открыть/закрыть вопрос")
     sp.add_argument("--add")
     sp.add_argument("--close", type=int, help="номер закрываемого вопроса")
@@ -494,11 +587,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--review-date", help="плановая дата пересмотра ГГГГ-ММ-ДД")
     sp.add_argument("--slug", dest="short_slug", help="короткое имя файла (латиница)")
     sp.add_argument("--context", help="краткое обоснование с маркерами")
+    sp.add_argument("--key", help="идемпотентный ключ: повтор с тем же ключом не создаёт второе решение")
     sp.set_defaults(fn=cmd_decision_add)
     sp = de.add_parser("update", help="сменить статус решения после пересмотра")
     sp.add_argument("slug")
     sp.add_argument("id")
-    sp.add_argument("--status", required=True, choices=decisions.STATUSES)
+    sp.add_argument("--status", choices=decisions.STATUSES)
+    sp.add_argument("--review-date", help="новая плановая дата пересмотра ГГГГ-ММ-ДД (заменяет прежнюю «дата: …»)")
     sp.add_argument("--note", help="что пересмотрели и почему")
     sp.set_defaults(fn=cmd_decision_update)
     sp = de.add_parser("review", help="что пора пересмотреть")
@@ -517,6 +612,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--cache-read", type=int, default=0, help="токены, прочитанные из кэша")
     sp.add_argument("--cache-write", type=int, default=0, help="токены, записанные в кэш")
     sp.add_argument("--source", default="manual", choices=["manual", "estimate", "hook"])
+    sp.add_argument("--key", help="идемпотентный ключ: повтор с тем же ключом не дублирует запись")
     sp.set_defaults(fn=cmd_cost_add)
     sp = cs.add_parser("report", help="расходы по этапам и моделям, доля бюджета, время")
     sp.add_argument("slug", nargs="?")
@@ -534,12 +630,39 @@ def build_parser() -> argparse.ArgumentParser:
     return P
 
 
+LONG_ACTIONS = {"fetch": "source_fetch", "report": "report", "impact": "impact"}
+
+
+def _long_action(args):
+    """Имя длинного действия для журнала <действие>_start/_end (п.28), если команда из списка."""
+    cmd = getattr(args, "cmd", None)
+    sub = getattr(args, "sub", None)
+    if cmd == "source" and sub == "fetch":
+        return "source_fetch", getattr(args, "url", "")
+    if cmd in ("report", "impact"):
+        return cmd, " ".join(getattr(args, "ids", []) or []) or getattr(args, "slug", "") or ""
+    return None, ""
+
+
+def _mark(args, suffix: str, ok: bool = True, detail: str = "") -> None:
+    name, target = _long_action(args)
+    if not name or not getattr(args, "slug", None):
+        return
+    try:
+        store.log_action(store.project_dir(args.slug), f"{name}_{suffix}", target or args.slug, ok=ok, detail=detail)
+    except Exception:  # noqa: BLE001 — журнал не должен ломать команду
+        pass
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        _mark(args, "start")
         rc = args.fn(args)
+        _mark(args, "end", ok=not rc, detail=f"код {int(rc or 0)}")
         return int(rc or 0)
     except SAError as exc:
+        _mark(args, "end", ok=False, detail=f"ошибка: {exc}")
         print(f"Ошибка: {exc}", file=sys.stderr)
         return getattr(exc, "code", 1) or 1
     except Exception as exc:  # noqa: BLE001 — непредвиденная ошибка: коротко, без трассировки

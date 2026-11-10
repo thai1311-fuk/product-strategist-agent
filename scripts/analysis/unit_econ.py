@@ -41,6 +41,8 @@ def ltv(arpu, churn, margin, discount=0.0, horizon=None) -> float:
 def payback(arpu, churn, cac, margin, discount=0.0) -> tuple[float | None, int | None]:
     m = arpu * margin
     simple = cac / m if m > 0 else None
+    if cac <= 0:
+        return simple, 0 if cac == 0 else None
     cum, s = 0.0, 1.0
     r = (1 - churn) / (1 + discount)
     for t in range(1, MAX_PERIODS + 1):
@@ -54,7 +56,7 @@ def payback(arpu, churn, cac, margin, discount=0.0) -> tuple[float | None, int |
 def metrics(p: dict, discount=0.0, horizon=None) -> dict:
     l = ltv(p["arpu"], p["churn"], p["margin"], discount, horizon)
     simple, adj = payback(p["arpu"], p["churn"], p["cac"], p["margin"], discount)
-    return {"ltv": l, "ltv_cac": l / p["cac"] if p["cac"] else None, "payback_simple": simple, "payback_adj": adj,
+    return {"ltv": l, "ltv_cac": l / p["cac"] if p["cac"] > 0 else None, "payback_simple": simple, "payback_adj": adj,
             "lifetime": 1 / p["churn"] if p["churn"] else None}
 
 
@@ -110,26 +112,29 @@ def render(base, origin, res, sens, assumptions, notes, unit, period, prov) -> t
           f"| LTV / CAC | {c.fmt(res['ltv_cac'])} |",
           f"| Средний срок жизни (1 / отток) | {c.fmt(res['lifetime'], 1)} {period} |",
           f"| Окупаемость CAC, простая (CAC / маржа за период) | {c.fmt(res['payback_simple'], 1)} {period} |",
-          f"| Окупаемость с учётом оттока | {res['payback_adj'] if res['payback_adj'] else 'не окупается'} {period if res['payback_adj'] else ''} |",
+          f"| Окупаемость с учётом оттока | {res['payback_adj'] if res['payback_adj'] is not None else 'не окупается'} {period if res['payback_adj'] is not None else ''} |",
           "", "## Чувствительность (каждый параметр отдельно ±20 %)", "",
           "| Параметр | Изменение | Значение | LTV | LTV/CAC | Окупаемость с оттоком |", "|---|---|---|---|---|---|"]
     swings = {}
     for s in sens:
         v = c.pct(s["value"]) if s["param"] in ("churn", "margin") else c.fmt(s["value"])
         L.append(f"| {NAMES[s['param']]} | {'−' if s['factor'] < 1 else '+'}{abs(s['factor'] - 1):.0%} | {v} | "
-                 f"{c.fmt(s['ltv'])} | {c.fmt(s['ltv_cac'])} | {s['payback_adj'] or 'не окупается'} |")
-        swings.setdefault(s["param"], []).append(s["ltv_cac"])
+                 f"{c.fmt(s['ltv'])} | {c.fmt(s['ltv_cac'])} | {s['payback_adj'] if s['payback_adj'] is not None else 'не окупается'} |")
+        if s["ltv_cac"] is not None:
+            swings.setdefault(s["param"], []).append(s["ltv_cac"])
     order = sorted(swings, key=lambda k: -(max(swings[k]) - min(swings[k])))
-    L += ["", "Сильнее всего на LTV/CAC влияют: " + ", ".join(
+    L += ["", ("Сильнее всего на LTV/CAC влияют: " + ", ".join(
         f"{NAMES[k]} ({c.fmt(min(swings[k]))}–{c.fmt(max(swings[k]))})" for k in order) +
-        ". Уточнять в первую очередь — первый параметр списка.",
+        ". Уточнять в первую очередь — первый параметр списка.") if order else
+        "LTV/CAC не определён (CAC = 0): чувствительность по LTV/CAC не считается.",
         "", "## Допущения", ""] + [f"- {a}" for a in assumptions]
     L += ["", "## Замечания к данным", ""] + ([f"- {n}" for n in notes] or ["- нет"])
-    worst = min(s["ltv_cac"] for s in sens)
-    best = max(s["ltv_cac"] for s in sens)
-    itog = (f"ИТОГ: LTV {c.fmt(res['ltv'])} {unit}, CAC {c.fmt(base['cac'])} {unit}, LTV/CAC {c.fmt(res['ltv_cac'])} "
-            f"(при ±20 % по одному параметру: {c.fmt(worst)}–{c.fmt(best)}), окупаемость с оттоком: "
-            f"{str(res['payback_adj']) + ' ' + period if res['payback_adj'] else 'не окупается'}; тип — estimate.")
+    ratios = [s["ltv_cac"] for s in sens if s["ltv_cac"] is not None]
+    rng = f"{c.fmt(min(ratios))}–{c.fmt(max(ratios))}" if ratios else "не определён"
+    lc = c.fmt(res['ltv_cac']) if res['ltv_cac'] is not None else "не определён (CAC = 0)"
+    itog = (f"ИТОГ: LTV {c.fmt(res['ltv'])} {unit}, CAC {c.fmt(base['cac'])} {unit}, LTV/CAC {lc} "
+            f"(при ±20 % по одному параметру: {rng}), окупаемость с оттоком: "
+            f"{str(res['payback_adj']) + ' ' + period if res['payback_adj'] is not None else 'не окупается'}; тип — estimate.")
     L += ["", itog, "", prov]
     return "\n".join(L), itog
 
@@ -182,9 +187,9 @@ def main(argv=None) -> int:
     report, itog = render(base, origin, res, sens, assumptions, notes, a.unit, a.period, prov)
     if out:
         c.write_csv(out.with_suffix(".csv"), ["param", "factor", "value", "ltv", "ltv_cac", "payback_adj"],
-                    [["base", 1.0, "", round(res["ltv"], 2), round(res["ltv_cac"], 3), res["payback_adj"] or ""]] +
+                    [["base", 1.0, "", round(res["ltv"], 2), "" if res["ltv_cac"] is None else round(res["ltv_cac"], 3), "" if res["payback_adj"] is None else res["payback_adj"]]] +
                     [[s["param"], round(s["factor"], 2), round(s["value"], 6), round(s["ltv"], 2),
-                      round(s["ltv_cac"], 3), s["payback_adj"] or ""] for s in sens])
+                      "" if s["ltv_cac"] is None else round(s["ltv_cac"], 3), "" if s["payback_adj"] is None else s["payback_adj"]] for s in sens])
     tail = f" sha256 {c.sha256_file(a.csv)[:12]}" if a.csv else ""
     c.finish(out, report, itog + tail)
     return 0

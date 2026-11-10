@@ -54,12 +54,39 @@
     "critic": "claude-opus-5-5"
   },
   "escalation": {
-    "rule": "Если валидатор или critic нашёл ошибку результата дешёвой модели — повторить шаг на модели уровнем выше и записать это: sa.py log <slug> --action escalate --target <этап> --detail \"причина\"",
+    "rule": "Если валидатор или critic нашёл ошибку результата дешёвой модели — повторить шаг на модели уровнем выше и записать это: sa.py log <slug> --action escalate_model --target <этап> --detail \"причина\"",
     "order": [
       "claude-haiku-5-5",
       "claude-sonnet-5-5",
       "claude-opus-5-5"
     ]
+  },
+  "tools": {
+    "web_search": {
+      "usd_per_request": 0.01,
+      "actions": ["websearch"],
+      "note": "цена одного поискового запроса (условная, по прайсу провайдера); считается по журналу действий"
+    }
+  },
+  "rules": {
+    "note": "Правила для scripts/route.py: первое совпавшее правило задаёт скилл и модель. Порядок важен. Ключевые слова — корни слов, поиск без учёта регистра.",
+    "list": [
+      {"skill": "decision-support", "stage": "monitor", "model": "claude-haiku-5-5", "keywords": ["новые данные", "пересмотр", "пересмотреть", "мониторинг", "изменилось", "impact", "решение пересмотр"]},
+      {"skill": "decision-support", "stage": "decision", "model": "claude-sonnet-5-5", "keywords": ["запись решения", "зафиксировать решение", "принять решение", "решение д"]},
+      {"skill": "research", "stage": "collect", "model": "claude-haiku-5-5", "keywords": ["собери", "собрать", "найди", "найти", "источник", "извлеки", "извлечь", "парс", "скачай", "доказательств"]},
+      {"skill": "data-analysis", "stage": "collect", "model": "claude-haiku-5-5", "keywords": ["таблиц", "csv", "xlsx", "выборк", "график", "размер выборки", "a/b"]},
+      {"skill": "interviews", "stage": "collect", "model": "claude-haiku-5-5", "keywords": ["интервью", "респондент", "гайд", "транскрипт"]},
+      {"skill": "ux-review", "stage": "collect", "model": "claude-sonnet-5-5", "keywords": ["скриншот", "юзабилити", "интерфейс", "экран"]},
+      {"skill": "comms-strategy", "stage": "strategy", "model": "claude-opus-5-5", "keywords": ["коммуникац", "сообщени", "канал", "позиционирован", "месседж"]},
+      {"skill": "product-strategy", "stage": "options", "model": "claude-opus-5-5", "keywords": ["вариант", "альтернатив", "стратеги", "приоритет", "go/no-go", "закрыть направление"]},
+      {"skill": "research", "stage": "synthesis", "model": "claude-opus-5-5", "keywords": ["синтез", "картина", "что известно", "ситуаци", "противореч"]},
+      {"skill": "research", "stage": "plan", "model": "claude-sonnet-5-5", "keywords": ["план исследован", "план проверки", "гипотез", "эксперимент"]},
+      {"skill": "strategist", "stage": "intake", "model": "claude-sonnet-5-5", "keywords": ["уточни", "задач", "запрос", "бриф", "цель", "помоги"]}
+    ],
+    "default": {"skill": "strategist", "stage": "intake", "model": "claude-sonnet-5-5"}
+  },
+  "human_review": {
+    "note": "Время человека на воротах считается по state.json: history (вход в awaiting_human → решение по воротам)."
   },
   "budget": {
     "warn_share": 0.8

@@ -80,6 +80,10 @@ def from_agg(path, cohort_col="cohort", period_col="period", users_col="users", 
     sizes: dict[int, int] = {}
     counts: dict[int, dict[int, int]] = defaultdict(dict)
     notes = []
+    amb = c.count_ambiguous(r[users_col] for r in rows)
+    if amb:
+        notes.append(f"{amb} значений `{users_col}` вида «1,234» неоднозначны (1 234 или 1,234?) — "
+                     f"читаются как десятичные и округляются вниз; проверьте формат выгрузки")
     for r in rows:
         k, p, u = idx[r[cohort_col]], c.parse_number(r[period_col]), c.parse_number(r[users_col])
         if p is None or u is None:

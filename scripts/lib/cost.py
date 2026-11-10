@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -61,7 +62,8 @@ def model_for(stage_or_agent: str, routing: dict | None = None) -> str:
 
 
 def add(pdir: Path, model: str, inp: int, out: int, stage: str | None = None, note: str = "",
-        source: str = "manual", cache_read: int = 0, cache_write: int = 0) -> dict:
+        source: str = "manual", cache_read: int = 0, cache_write: int = 0, key: str | None = None) -> dict:
+    """Записать расход. Если задан key и запись с ним уже есть — ничего не пишет и возвращает её (duplicate=True)."""
     from . import state  # noqa: PLC0415
     if min(inp, out, cache_read, cache_write) < 0:
         raise SAError("Число токенов не может быть отрицательным.")
@@ -75,8 +77,31 @@ def add(pdir: Path, model: str, inp: int, out: int, stage: str | None = None, no
            "usd": price(full, inp, out, cache_write, cache_read, routing=routing), "source": source, "note": note}
     if cache_read or cache_write:
         rec.update(raw_input=int(inp), cache_read=int(cache_read), cache_write=int(cache_write))
-    store.append_jsonl(pdir / "log" / "costs.jsonl", rec)
+    path = pdir / "log" / "costs.jsonl"
+    if key:
+        rec["key"] = key
+        with store.locked(path):
+            rows = store.read_jsonl(path)
+            for r in rows:
+                if r.get("key") == key:
+                    return dict(r, duplicate=True)
+            rows.append(rec)
+            store.write_jsonl(path, rows)
+        return rec
+    store.append_jsonl(path, rec)
     return rec
+
+
+def _session_in_other_projects(pdir: Path, session: str) -> list[dict]:
+    """Записи хука этой же сессии в ДРУГИХ проектах: уже учтённая там часть транскрипта вычитается,
+    чтобы при переключении проекта внутри сессии расходы не писались дважды."""
+    out = []
+    for p in store.list_projects():
+        if p.resolve() == pdir.resolve():
+            continue
+        out += [r for r in store.read_jsonl(p / "log" / "costs.jsonl")
+                if r.get("source") == "hook" and r.get("session") == session]
+    return out
 
 
 def upsert_session(pdir: Path, session: str, stage: str, per_model: dict[str, dict]) -> list[dict]:
@@ -96,8 +121,10 @@ def upsert_session(pdir: Path, session: str, stage: str, per_model: dict[str, di
                                         and r.get("stage") == stage)]
         keys = {"input_tokens": "raw_input", "output_tokens": "output_tokens",
                 "cache_write": "cache_write", "cache_read": "cache_read"}
+        elsewhere = _session_in_other_projects(pdir, session)
         for model, tot in per_model.items():
             other = [r for r in mine if r.get("stage") != stage and r.get("model") == model]
+            other += [r for r in elsewhere if r.get("model") == model]
             cur = {k: max(0, int(tot.get(k, 0)) - sum(int(r.get(rk, 0) or 0) for r in other))
                    for k, rk in keys.items()}
             if not any(cur.values()):
@@ -164,6 +191,37 @@ def _stage_durations(st: dict) -> dict[str, float]:
     return dur
 
 
+def search_cost(pdir: Path, routing: dict | None = None) -> tuple[int, float, float]:
+    """(число поисковых запросов по журналу действий, цена за запрос, сумма USD)."""
+    routing = routing or load_routing()
+    cfg = routing.get("tools", {}).get("web_search", {})
+    per = float(cfg.get("usd_per_request", 0) or 0)
+    names = set(cfg.get("actions") or ["websearch"])
+    n = sum(1 for a in store.read_jsonl(pdir / "log" / "actions.jsonl") if str(a.get("action", "")).lower() in names)
+    return n, per, round(n * per, 4)
+
+
+def human_gate_minutes(st: dict) -> list[tuple[str, float, bool]]:
+    """Ожидание человека на воротах по history: от перехода в awaiting_human до решения по воротам/выхода из статуса.
+    Возвращает [(этап, минуты, ещё ждём)]."""
+    import datetime as _dt  # noqa: PLC0415
+    hist = [(store.parse_ts(h.get("ts")), str(h.get("event", ""))) for h in st.get("history", [])]
+    res, start = [], None
+    for ts, ev in hist:
+        if ts is None:
+            continue
+        head = ev.split(":")[0]
+        if start is not None and (head.startswith("ворота ") or "/awaiting_human →" in head):
+            res.append((start[1], (ts - start[0]).total_seconds() / 60, False))
+            start = None
+        m = re.search(r"→ ([a-z_]+)/awaiting_human\s*$", head)
+        if m and start is None:
+            start = (ts, m.group(1))
+    if start is not None and st.get("stage_status") == "awaiting_human":
+        res.append((start[1], (_dt.datetime.now().astimezone() - start[0]).total_seconds() / 60, True))
+    return res
+
+
 def summary(pdir: Path) -> dict:
     from . import state  # noqa: PLC0415
     st = state.load(pdir)
@@ -201,6 +259,12 @@ def report(pdir: Path) -> list[str]:
         for k, (i, o, u) in sorted(by_model.items(), key=lambda x: -x[1][2]):
             out.append(f"    {k:<20} ${u:8.4f}  вход {i:>10,}  выход {o:>9,}")
         out.append("  По способу учёта: " + ", ".join(f"{k} ${v:.4f}" for k, v in by_source.items()))
+    n_s, per_s, usd_s = search_cost(pdir, routing)
+    if n_s:
+        out.append(f"  Поиск: {n_s} запросов × ${per_s:.3f} = ${usd_s:.2f} (оценка по журналу; в итог токенов не входит, "
+                   f"с поиском ${s['total'] + usd_s:.4f})")
+    else:
+        out.append("  Поиск: запросов в журнале нет")
     pct = s["share"] * 100
     warn = routing.get("budget", {}).get("warn_share", 0.8) * 100
     out.append(f"  Итого: ${s['total']:.4f} из бюджета ${s['budget']:.2f} ({pct:.0f}%)"
@@ -211,6 +275,13 @@ def report(pdir: Path) -> list[str]:
         days = (updated - created).total_seconds() / 86400
         out.append(f"  Время: с начала проекта {days:.1f} дн.; активная работа ≈ {_active_minutes(actions):.0f} мин "
                    f"(по журналу действий, перерывы >{ACTIVE_GAP_MIN} мин не считаются)")
+    waits = human_gate_minutes(st)
+    if waits:
+        tot = sum(m for _, m, _ in waits)
+        out.append(f"  Минуты человека на воротах (ожидание решения, по history): {tot:.0f} мин — "
+                   + ", ".join(f"{stg} {m:.0f}" + (" (ждём)" if op else "") for stg, m, op in waits))
+    else:
+        out.append("  Минуты человека на воротах: нет данных (ворот ещё не было)")
     iv = stage_intervals(st)
     if iv:
         out.append("  Время на этапах (по истории state.json: вход → выход):")

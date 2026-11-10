@@ -160,6 +160,9 @@ def main(argv=None) -> int:
         mde_abs = base * a.mde_rel if a.mde_rel is not None else c.parse_share(a.mde_abs)
     except ValueError as e:
         p.error(f"--mde-abs: {e}")
+    if not 0 < base + mde_abs < 1 or mde_abs <= 0:
+        p.error(f"базовая конверсия {c.pct(base, 2)} + MDE {c.pct(mde_abs, 2)} выходит за (0; 100 %): "
+                f"уменьшите --mde-rel/--mde-abs или проверьте --baseline")
     share = a.share
     res = plan(base, mde_abs, a.alpha, a.power, not a.one_sided, a.variants, a.daily, share)
 

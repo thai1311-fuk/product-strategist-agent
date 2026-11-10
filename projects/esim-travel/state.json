@@ -229,5 +229,6 @@
       "stage": "monitor",
       "event": "monitor/in_progress → monitor/in_progress"
     }
-  ]
+  ],
+  "demo": true
 }

@@ -12,6 +12,37 @@ from .validate import parse_frontmatter
 
 DATE_TRIGGER_RE = re.compile(r"дата\s*:?\s*(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
 STATUSES = ["active", "review_due", "revised", "closed"]
+# даты в обязательствах: 2026-12-15 или 15.12.2026
+ANY_DATE_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\.(\d{1,2})\.(\d{4})")
+
+
+def parse_dates(text: str) -> list[_dt.date]:
+    out = []
+    for m in ANY_DATE_RE.finditer(str(text)):
+        try:
+            if m.group(1):
+                out.append(_dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+            else:
+                out.append(_dt.date(int(m.group(6)), int(m.group(5)), int(m.group(4))))
+        except ValueError:
+            continue
+    return out
+
+
+def _norm(text: str) -> str:
+    return " ".join(str(text).lower().split())
+
+
+def find_duplicate(pdir: Path, decision: str, based_on, key: str | None = None) -> Path | None:
+    """Решение с тем же ключом или с той же формулировкой и теми же основаниями (кроме closed)."""
+    based = sorted(store.split_ids(based_on))
+    for f, meta, _ in load_all(pdir):
+        if key and meta.get("key") == key:
+            return f
+        if (meta.get("status") != "closed" and _norm(meta.get("decision", "")) == _norm(decision)
+                and sorted(meta.get("based_on") or []) == based):
+            return f
+    return None
 
 
 def _slugify(text: str) -> str:
@@ -49,7 +80,12 @@ def load_all(pdir: Path) -> list[tuple[Path, dict, str]]:
 
 def add(pdir: Path, decision: str, owner: str, based_on: str | list[str], metrics: list[str],
         triggers: list[str], commitments: list[str], date: str | None = None,
-        review_date: str | None = None, context: str = "", slug: str | None = None) -> Path:
+        review_date: str | None = None, context: str = "", slug: str | None = None,
+        key: str | None = None) -> Path:
+    """Записать решение. Идемпотентно: то же key, либо та же формулировка с теми же основаниями → существующий файл."""
+    dup = find_duplicate(pdir, decision, based_on, key)
+    if dup:
+        return dup
     based = store.split_ids(based_on)
     concl = store.by_id(store.read_jsonl(pdir / "conclusions.jsonl"))
     bad = [c for c in based if c not in concl]
@@ -66,7 +102,8 @@ def add(pdir: Path, decision: str, owner: str, based_on: str | list[str], metric
             _dt.date.fromisoformat(review_date)
         except ValueError:
             raise SAError(f"--review-date должна быть ГГГГ-ММ-ДД: «{review_date}»") from None
-        triggers.append(f"дата: {review_date}")
+        if not any(review_date in DATE_TRIGGER_RE.findall(str(t)) for t in triggers):
+            triggers.append(f"дата: {review_date}")
     if not triggers:
         raise SAError("Нужно условие пересмотра: --trigger \"если … то пересмотреть\" и/или --review-date ГГГГ-ММ-ДД")
     if not commitments:
@@ -80,6 +117,8 @@ def add(pdir: Path, decision: str, owner: str, based_on: str | list[str], metric
     did = store.next_id([{"id": i} for i in existing], "D")
     meta = {"id": did, "date": date, "decision": decision, "owner": owner, "based_on": based,
             "metrics": metrics, "review_triggers": triggers, "commitments": commitments, "status": "active"}
+    if key:
+        meta["key"] = key
     body = (f"# {did}. {decision}\n\n"
             f"## Контекст и основания\n{context or 'Краткое обоснование со ссылками: ' + ', '.join(f'[{c}]' for c in based)}\n\n"
             "## Рассмотренные варианты\nсм. outputs/options.md\n\n"
@@ -98,11 +137,15 @@ def review(pdir: Path, apply: bool = True, horizon_days: int = 30) -> dict:
     """
     concl = store.by_id(store.read_jsonl(pdir / "conclusions.jsonl"))
     today = store.today()
-    due, upcoming = [], []
+    due, upcoming, overdue = [], [], []
     for f, meta, body in load_all(pdir):
         if meta.get("status") in ("closed", "revised"):
             continue
         reasons = []
+        for c in meta.get("commitments") or []:
+            ds = parse_dates(c)
+            if ds and max(ds) < today:
+                overdue.append((meta.get("id"), str(c), max(ds).isoformat()))
         for t in meta.get("review_triggers") or []:
             m = DATE_TRIGGER_RE.search(str(t))
             if not m:
@@ -122,6 +165,9 @@ def review(pdir: Path, apply: bool = True, horizon_days: int = 30) -> dict:
                 reasons.append(f"основание {c} не найдено")
             elif st in ("needs_review", "retracted"):
                 reasons.append(f"основание {c}: {st}")
+        if not reasons and meta.get("status") == "review_due":
+            reasons.append("статус review_due: пересмотрите и закройте — sa.py decision update <slug> "
+                           f"{meta.get('id')} --status active|revised|closed [--review-date ГГГГ-ММ-ДД]")
         if reasons:
             due.append((meta.get("id"), f, reasons))
             if apply and meta.get("status") != "review_due":
@@ -130,19 +176,36 @@ def review(pdir: Path, apply: bool = True, horizon_days: int = 30) -> dict:
                 store.atomic_write_text(f, render(meta, body))
                 store.log_action(pdir, "decision_review_due", meta.get("id", f.name), detail="; ".join(reasons))
     upcoming.sort(key=lambda x: x[1])
-    return {"due": due, "upcoming": upcoming}
+    return {"due": due, "upcoming": upcoming, "overdue_commitments": overdue}
 
 
-def update(pdir: Path, did: str, status: str, note: str = "") -> Path:
-    """Закрыть пересмотр решения: active (в силе) | revised (изменено) | closed (завершено)."""
-    if status not in STATUSES:
+def update(pdir: Path, did: str, status: str | None = None, note: str = "", review_date: str | None = None) -> Path:
+    """Закрыть пересмотр решения: статус active (в силе) | revised | closed и/или новая плановая дата пересмотра
+    (заменяет прежние «дата: …» в review_triggers, не дублируя)."""
+    if status is None and not review_date:
+        raise SAError("Нужен --status и/или --review-date ГГГГ-ММ-ДД")
+    if status is not None and status not in STATUSES:
         raise SAError(f"Недопустимый статус «{status}». Допустимо: {', '.join(STATUSES)}")
+    if review_date:
+        try:
+            _dt.date.fromisoformat(review_date)
+        except ValueError:
+            raise SAError(f"--review-date должна быть ГГГГ-ММ-ДД: «{review_date}»") from None
     did = did.strip().upper()
     for f, meta, body in load_all(pdir):
         if meta.get("id") == did:
-            meta["status"] = status
-            body = body.rstrip() + f"\n- {store.today().isoformat()}: статус {status}" + (f" — {note}" if note else "") + "\n"
+            line = f"\n- {store.today().isoformat()}:"
+            if status:
+                meta["status"] = status
+                line += f" статус {status}"
+            if review_date:
+                trig = [t for t in (meta.get("review_triggers") or []) if not DATE_TRIGGER_RE.search(str(t))]
+                trig.append(f"дата: {review_date}")
+                meta["review_triggers"] = trig
+                line += f"{',' if status else ''} следующий пересмотр {review_date}"
+            body = body.rstrip() + line + (f" — {note}" if note else "") + "\n"
             store.atomic_write_text(f, render(meta, body))
-            store.log_action(pdir, "decision_update", did, detail=f"{status}; {note}", actor="human")
+            store.log_action(pdir, "decision_update", did, detail=f"{status or ''} {review_date or ''}; {note}".strip(),
+                             actor="human")
             return f
     raise SAError(f"Решение {did} не найдено в decisions/.")

@@ -764,10 +764,20 @@ class ReportBuilder:
         gates = st.get("gates") or {}
         gate_at = {"plan": ("plan_approved", "план одобрен"), "options": ("option_chosen", "вариант выбран"),
                    "strategy": ("strategy_approved", "стратегия одобрена")}
+        # ✓ только у этапов, реально пройденных по history (поле stage и левая часть «a/b → c/d»)
+        seen = set()
+        for h in (st.get("history") or []):
+            if isinstance(h, dict):
+                seen.add(str(h.get("stage") or ""))
+                m = re.match(r"\s*(\w+)/\w+\s*→\s*(\w+)/", str(h.get("event") or ""))
+                if m:
+                    seen.update(m.groups())
         items = []
         for i, (key, name) in enumerate(STAGES):
-            if i < cur or (i == cur and status == "done"):
+            if (i < cur or (i == cur and status == "done")) and key in seen:
                 cls, mark = "done", "✓"
+            elif i < cur:
+                cls, mark = "todo", "⊘"  # этап пропущен: в истории нет перехода на него
             elif i == cur:
                 cls, mark = ("wait" if status == "awaiting_human" else "now"), "●"
             else:
@@ -779,7 +789,7 @@ class ReportBuilder:
                 ok = bool(val)
                 gate = f'<span class="gate {"gate-ok" if ok else ""}">⏸ {gname}: {"да" if ok else "нет"}{(" (" + esc(val) + ")") if isinstance(val, str) and val else ""}</span>'
             items.append(f'<li class="st-{cls}"><span class="mark" aria-hidden="true">{mark}</span>'
-                         f'<span class="st-name">{i}. {esc(name)}</span>{gate}</li>')
+                         f'<span class="st-name">{i}. {esc(name)}{" (пропущен)" if mark == "⊘" else ""}</span>{gate}</li>')
         ev_types = Counter(str(e.get("type")) for e in p.evidence if e.get("status", "active") == "active")
         nr = sum(1 for c in p.conclusions if c.get("status") == "needs_review")
         spent = sum(_num(c.get("usd")) for c in p.costs)

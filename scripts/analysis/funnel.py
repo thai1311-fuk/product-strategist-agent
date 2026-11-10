@@ -63,14 +63,18 @@ def from_events(path, steps, user_col="user_id", step_col="step") -> dict:
 def from_agg(path, step_col="step", users_col="users") -> dict:
     header, rows, _ = c.read_csv(path)
     c.require_columns(header, [step_col, users_col], path)
-    steps, counts = [], []
+    steps, counts, notes = [], [], []
+    amb = c.count_ambiguous(r[users_col] for r in rows)
+    if amb:
+        notes.append(f"{amb} значений `{users_col}` вида «1,234» неоднозначны (1 234 или 1,234?) — "
+                     f"читаются как десятичные и округляются вниз; проверьте формат выгрузки")
     for r in rows:
         x = c.parse_number(r[users_col])
         if x is None:
             raise SystemExit(f"Ошибка: нет числа в строке {r}")
         steps.append(r[step_col])
         counts.append(int(x))
-    return build(steps, counts, [], rows=len(rows))
+    return build(steps, counts, notes, rows=len(rows))
 
 
 def build(steps, counts, notes, loose=None, rows=None) -> dict:

@@ -315,8 +315,9 @@ class TestLiveRunFixes(Base):
         self.assertIn("план ✓", text)
         self.assertNotIn("Ждём", text)
         self.seed()
+        evidence.add_conclusion(self.pdir, "Вариант А", "E002", kind="option")
         state.set_stage(self.pdir, "options", status="awaiting_human")
-        self.assertEqual(state.set_gate(self.pdir, "option_chosen", "C001")["stage"], "strategy")
+        self.assertEqual(state.set_gate(self.pdir, "option_chosen", "C004")["stage"], "strategy")
         self.assertEqual(state.set_gate(self.pdir, "strategy_approved")["stage"], "test_plan")
         st = state.set_gate(self.pdir, "plan_approved")  # повторное одобрение не откатывает этап
         self.assertEqual(st["stage"], "test_plan")
@@ -465,3 +466,118 @@ class TestReviewWave(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAudit(Base):
+    """Внешний аудит: ворота, actor, маркеры, статусы, ПДн в data/, бюджет."""
+
+    def setUp(self):
+        super().setUp()
+        self._env = mock.patch.dict(os.environ, {"SA_ACTOR": "agent"})
+        self._env.start()
+
+    def tearDown(self):
+        self._env.stop()
+        super().tearDown()
+
+    def test_stage_jump_blocked_and_all_gates_required(self):
+        state.set_stage(self.pdir, "plan")
+        for target in ("collect", "synthesis", "options", "strategy", "decision", "monitor"):
+            with self.assertRaises(store.SAError, msg=target):
+                state.set_stage(self.pdir, target)
+        st = state.load(self.pdir)
+        self.assertEqual(st["stage"], "plan")
+        self.assertEqual(state.missing_gates(st, "monitor"), ["plan_approved", "option_chosen", "strategy_approved"])
+
+    def test_force_logged_with_actor_default_agent(self):
+        state.set_stage(self.pdir, "options", force=True)
+        rows = store.read_jsonl(self.pdir / "log" / "actions.jsonl")
+        forced = [r for r in rows if r["action"] == "stage_force"]
+        self.assertEqual(forced[0]["actor"], "agent")
+        self.assertIn("plan_approved", forced[0]["detail"])
+        rep = validate.run(self.pdir)
+        self.assertTrue(any("пройден без ворот" in e for e in rep.errors))
+
+    def test_actor_from_env_not_human_by_default(self):
+        state.set_gate(self.pdir, "plan_approved")
+        row = [r for r in store.read_jsonl(self.pdir / "log" / "actions.jsonl") if r["action"] == "gate"][-1]
+        self.assertEqual(row["actor"], "agent")
+        with mock.patch.dict(os.environ, {"SA_ACTOR": "human"}):
+            state.set_gate(self.pdir, "strategy_approved")
+        row = [r for r in store.read_jsonl(self.pdir / "log" / "actions.jsonl") if r["action"] == "gate"][-1]
+        self.assertEqual(row["actor"], "human")
+
+    def test_option_gate_checks_kind_and_status(self):
+        self.seed()
+        with self.assertRaises(store.SAError):
+            state.set_gate(self.pdir, "option_chosen", "C001")  # insight
+        evidence.add_conclusion(self.pdir, "Вариант А", "E002", kind="option")
+        c = store.read_jsonl(self.pdir / "conclusions.jsonl")
+        c[-1]["status"] = "retracted"
+        store.write_jsonl(self.pdir / "conclusions.jsonl", c)
+        with self.assertRaises(store.SAError):
+            state.set_gate(self.pdir, "option_chosen", c[-1]["id"])
+
+    def test_gate_updates_options_md(self):
+        self.seed()
+        evidence.add_conclusion(self.pdir, "Вариант А", "E002", kind="option")
+        (self.pdir / "outputs" / "options.md").write_text(
+            "> Статус: ждёт выбора руководителя (ворота option_chosen).\n\n## Решение человека\n"
+            "- **Выбран вариант:** ждёт решения руководителя\n- **Кто решил, дата:** —\n", encoding="utf-8")
+        state.set_gate(self.pdir, "option_chosen", "C004")
+        t = (self.pdir / "outputs" / "options.md").read_text(encoding="utf-8")
+        self.assertIn("**Выбран вариант:** C004", t)
+        self.assertNotIn("ждёт", t)
+
+    def test_stale_status_vs_state(self):
+        (self.pdir / "outputs" / "research_plan.md").write_text("# План\n\n- Статус: ожидает утверждения\n", encoding="utf-8")
+        st = state.load(self.pdir)
+        st["gates"]["plan_approved"] = True
+        st["stage"] = "collect"
+        store.write_json(self.pdir / "state.json", st)
+        rep = validate.run(self.pdir)
+        self.assertTrue(any("ожидает утверждения" in e for e in rep.errors), rep.errors)
+
+    def test_marker_group_forms_and_retracted_promise(self):
+        self.seed()
+        self.assertEqual(validate.markers_in("[E146, отозвано] [E001, E002] [E012; C003]"),
+                         ["E146", "E001", "E002", "E012", "C003"])
+        evidence.retract_evidence(self.pdir, "E002", "ошибка")
+        (self.pdir / "outputs" / "comms_strategy.md").write_text(
+            "# Коммуникации\n\nКлючевое сообщение: семьи получат общий счёт [E002, отозвано].\n", encoding="utf-8")
+        rep = validate.run(self.pdir)
+        self.assertTrue(any("E002" in e and "обещание" in e for e in rep.errors), rep.errors)
+
+    def test_synthetic_only_insight_is_error(self):
+        evidence.add_evidence(self.pdir, "Респонденты хотят X", "synthetic")
+        evidence.add_conclusion(self.pdir, "Людям нужен X", "E001", kind="insight")
+        self.assertTrue(any("синтет" in e for e in validate.run(self.pdir).errors))
+
+    def test_budget_validation(self):
+        for bad in (0, -1, float("nan"), float("inf")):
+            with self.assertRaises(store.SAError):
+                state.create_project("bad" + str(abs(hash(str(bad))) % 1000), "x", budget=bad)
+            with self.assertRaises(store.SAError):
+                state.set_budget(self.pdir, bad)
+
+    def test_data_pii_and_secrets_scan(self):
+        (self.pdir / "data" / "clients.csv").write_text(
+            "имя,телефон,email\nИван Петров,+7 916 123-45-67,ivan@example.com\n", encoding="utf-8")
+        rep = validate.run(self.pdir)
+        self.assertTrue(any("data/clients.csv" in e for e in rep.errors), rep.errors)
+
+    def test_report_checkmarks_only_for_visited(self):
+        from lib import report
+        state.set_stage(self.pdir, "plan")
+        state.set_stage(self.pdir, "options", force=True)
+        out = report.build_report(self.pdir).read_text(encoding="utf-8")
+        self.assertIn("(пропущен)", out)
+
+    def test_resume_warns_gates_and_unfinished(self):
+        state.set_stage(self.pdir, "options", force=True)
+        store.log_action(self.pdir, "consistency_check_start", "strategy")
+        text = "\n".join(state.resume_lines(self.pdir))
+        self.assertIn("НАРУШЕНЫ ВОРОТА", text)
+        self.assertIn("не завершены", text)
+        store.log_action(self.pdir, "consistency_check", "strategy")
+        self.assertNotIn("не завершены", "\n".join(state.resume_lines(self.pdir)))

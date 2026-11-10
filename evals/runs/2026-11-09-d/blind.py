@@ -10,9 +10,9 @@ SRCLIST="""Источники:
 # --- agent ---
 snap=B/"snap_before_fact"
 ev={}
-for l in open(snap/"evidence.jsonl"):
+for l in open(snap/"evidence.jsonl", encoding="utf-8"):
     d=json.loads(l); ev[d["id"]]=d
-txt=(snap/"outputs/situation.md").read_text()+"\n\n"+(snap/"outputs/options.md").read_text()
+txt=(snap/"outputs/situation.md").read_text(encoding="utf-8")+"\n\n"+(snap/"outputs/options.md").read_text(encoding="utf-8")
 order=[]
 def evrep(m):
     e=m.group(1)
@@ -34,14 +34,14 @@ for i,e in enumerate(order,1):
 agent=txt+"\n\n"+"\n".join(foot)+"\n\n"+SRCLIST
 agent=re.sub(r"\[?(S00[1-4])\]?",lambda m:f"[{SRC[m.group(1)]}]",agent).replace("первичный сбор E004–E015","первичный сбор")
 # --- chat ---
-c=(B/"chat_raw.md").read_text()
+c=(B/"chat_raw.md").read_text(encoding="utf-8")
 c=c[:c.index("## 4. Продуктовая стратегия")]
 c=re.sub(r"^Источники в тексте:.*$","Источники в тексте: см. список в конце. [Расчёт] — арифметические выводы из материалов. [Допущение] — гипотеза, в данных её нет.",c,flags=re.M)
 for a,b in [("[A]","[И1]"),("[B]","[И2]"),("[C]","[И3]"),("[H]","[И4]"),("материал [C]","материал [И3]")]:
     c=c.replace(a,b)
 c=c+"\n\n"+SRCLIST
-rng=random.Random(20261109); lab=rng.choice(["agent_is_X","agent_is_Y"])
+rng=random.SystemRandom()  # seed не фиксируем: иначе ключ восстанавливается из кода (аудит №86); lab=rng.choice(["agent_is_X","agent_is_Y"])
 X,Y=(agent,c) if lab=="agent_is_X" else (c,agent)
-(B/"blind_X.md").write_text("# Результат X\n\n"+X); (B/"blind_Y.md").write_text("# Результат Y\n\n"+Y)
-(B/"blind_key.txt").write_text(lab+"\n")
+(B/"blind_X.md").write_text("# Результат X\n\n"+X, encoding="utf-8"); (B/"blind_Y.md").write_text("# Результат Y\n\n"+Y, encoding="utf-8")
+(B/"blind_key.txt").write_text(lab+"\n", encoding="utf-8")  # ключ после прогона переносить ВНЕ репозитория, в репозитории — только sha256
 print("ok", len(X), len(Y))

@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import hashlib
+import io
 import json
 import re
 import shlex
@@ -60,6 +61,20 @@ def parse_number(value: str | None) -> float | None:
     return x
 
 
+_AMBIG = re.compile(r"^[-+(]?\d{1,3},\d{3}\)?$")
+
+
+def is_ambiguous_number(value: str | None) -> bool:
+    """'1,234' — тысячи (1234) или десятичная дробь (1,234)? Парсер читает как 1.234; такие значения надо проверять."""
+    if is_missing(value):
+        return False
+    return bool(_AMBIG.match(_NUM_STRIP.sub("", value.strip()).rstrip("%")))
+
+
+def count_ambiguous(values) -> int:
+    return sum(1 for v in values if is_ambiguous_number(v))
+
+
 def parse_share(value: str | float) -> float:
     """Доля из '4.2%', '4,2 %', '0.042' → 0.042. Число > 1 без % — ошибка (вероятно, проценты)."""
     if isinstance(value, (int, float)):
@@ -93,6 +108,7 @@ _QUARTER = [
 _DATE_FORMATS = [
     ("%Y-%m-%d", "day"), ("%d.%m.%Y", "day"), ("%d/%m/%Y", "day"), ("%Y/%m/%d", "day"),
     ("%Y-%m-%d %H:%M:%S", "day"), ("%Y-%m-%dT%H:%M:%S", "day"), ("%d.%m.%Y %H:%M", "day"),
+    ("%Y-%m-%d %H:%M", "day"), ("%Y-%m-%dT%H:%M", "day"), ("%d.%m.%Y %H:%M:%S", "day"),
     ("%Y-%m", "month"), ("%m.%Y", "month"), ("%m/%Y", "month"),
 ]
 
@@ -102,8 +118,8 @@ def parse_date(value: str | None) -> tuple[dt.date, str] | None:
     if is_missing(value):
         return None
     s = value.strip()
-    if "T" in s and len(s) > 19:
-        s = s[:19]
+    s = re.sub(r"(?<=\d{2}:\d{2}:\d{2})[.,]\d+", "", s)  # доли секунды
+    s = re.sub(r"(Z|[+-]\d{2}:?\d{2})$", "", s) if re.search(r"\d{2}:\d{2}", s) else s  # часовой пояс
     for i, rx in enumerate(_QUARTER):
         m = rx.match(s)
         if m:
@@ -142,15 +158,19 @@ def read_csv(path: str | Path) -> tuple[list[str], list[dict[str, str]], dict]:
             break
         except UnicodeDecodeError:
             continue
+    else:
+        raise SystemExit(f"Ошибка: {path} не читается как utf-8 или cp1251. Пересохраните файл в utf-8 (CSV UTF-8).")
+    if not text.strip():
+        raise SystemExit(f"Ошибка: {path} пустой файл.")
     sample = text[:20000]
     try:
         delim = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
     except csv.Error:
         delim = ","
-    reader = csv.reader(text.splitlines(), delimiter=delim)
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delim)
     rows = [r for r in reader if any(c.strip() for c in r)]
     if not rows:
-        raise ValueError(f"{path}: пустой файл")
+        raise SystemExit(f"Ошибка: {path}: в файле нет строк данных")
     header = [h.strip() for h in rows[0]]
     if len(set(header)) != len(header):
         raise ValueError(f"{path}: повторяющиеся названия столбцов {header}")
@@ -176,13 +196,26 @@ def add_output_args(p) -> None:
     p.add_argument("--slug", help="проект: отчёт пишется в projects/<slug>/data/<имя по умолчанию>")
 
 
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def project_path(slug: str) -> Path:
+    """projects/<slug> с проверкой имени (без «..» и слэшей); учитывает SA_PROJECTS_DIR."""
+    import os
+    if not slug or not _SLUG_RE.match(slug):
+        raise SystemExit(f"Ошибка: некорректное имя проекта «{slug}» (строчные латинские буквы, цифры, дефис).")
+    env = os.environ.get("SA_PROJECTS_DIR")
+    base = Path(env).expanduser().resolve() if env else REPO_ROOT / "projects"
+    return base / slug
+
+
 def resolve_out(args, default_name: str) -> Path | None:
     if getattr(args, "out", None):
         out = Path(args.out)
         if out.is_dir() or args.out.endswith(("/", "\\")):
             out = out / default_name
     elif getattr(args, "slug", None):
-        proj = REPO_ROOT / "projects" / args.slug
+        proj = project_path(args.slug)
         if not proj.exists():
             raise SystemExit(f"Ошибка: проект {proj} не найден (создайте: python3 scripts/sa.py new {args.slug})")
         out = proj / "data" / default_name

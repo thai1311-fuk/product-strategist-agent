@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """SessionStart: печатает сводку активного проекта (stdout попадает в контекст модели).
 
-Активный проект — последний обновлённый state.json в projects/. Хук никогда не падает (exit 0).
+Активный проект — последний обновлённый state.json в projects/ (проекты с "demo": true пропускаются). Хук никогда не падает (exit 0).
 Ручной эквивалент (Cursor/Codex): python3 scripts/sa.py resume
 """
 import json
@@ -21,11 +21,18 @@ def main() -> None:
     try:
         from lib import state, store  # noqa: PLC0415
         pdir = store.active_project()
+        demos = [p.name for p in store.list_projects() if store.is_demo(p)]
         if pdir is None:
-            print("[Стратег] Активного проекта нет. Начать: python3 scripts/sa.py new <slug> --title \"…\" "
+            if demos:
+                print(f"[Стратег] Есть демонстрационные проекты ({', '.join(demos)}) — это примеры, "
+                      "в них расходы и журнал не пишутся. Посмотреть: python3 scripts/sa.py resume <slug>.")
+            print("[Стратег] Рабочего проекта нет. Начать: python3 scripts/sa.py new <slug> --title \"…\" "
                   "(этап 0 — уточнение запроса, см. AGENTS.md).")
             return
         others = [p.name for p in store.list_projects() if p != pdir]
+        if demos:
+            others = [n for n in others if n not in demos]
+            print(f"(демонстрационные проекты, пропущены: {', '.join(demos)})")
         print("[Стратег] Сводка активного проекта (продолжайте с «Следующий шаг»):")
         print("\n".join(state.resume_lines(pdir, max_lines=40)))
         if others:

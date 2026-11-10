@@ -95,6 +95,11 @@ def profile_column(name: str, raw: list[str]) -> dict:
                 col["flags"].append(f"единицы {sorted(units)} указаны только в {with_unit} из {len(vals)} значений — возможно смешение единиц")
             else:
                 col["flags"].append(f"единицы в значениях: {sorted(units)} — учтите при расчётах")
+        amb = c.count_ambiguous(vals)
+        if amb:
+            ex = [v for v in vals if c.is_ambiguous_number(v)][:3]
+            col["flags"].append(f"{amb} значений вида «1,234» неоднозначны (тысячи или десятичная дробь?): {ex} — "
+                                f"скрипты читают как 1,234; уточните формат выгрузки")
         gap = magnitude_gap(xs)
         if gap:
             col["flags"].append(f"разрыв величин в {gap[0]:.0f}×: {gap[1]:.0%} значений ≤ {c.fmt(gap[2])}, остальные на 2+ порядка больше — "

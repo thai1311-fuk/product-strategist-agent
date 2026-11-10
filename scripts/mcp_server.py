@@ -36,7 +36,7 @@ PROTO_OUT = sys.stdout          # канал протокола — только
 sys.stdout = sys.stderr         # любые случайные print не испортят протокол
 
 import sa  # noqa: E402
-from lib import evidence, store  # noqa: E402
+from lib import decisions, evidence, state, store  # noqa: E402
 from lib.store import SAError  # noqa: E402
 
 SERVER_INFO = {"name": "strategist", "title": "Стратег Фабрики продуктов", "version": "1.0.0"}
@@ -45,6 +45,9 @@ os.environ.setdefault("SA_SESSION", f"mcp-{os.getpid()}")
 os.environ["SA_ACTOR"] = "mcp"
 
 S = {"type": "string"}
+INT = {"type": "integer", "minimum": 0}
+ARR = {"type": "array", "items": {"type": "string"}}
+STAGES = state.STAGES
 SLUG = {"type": "string", "description": "имя проекта (папка projects/<slug>)"}
 
 
@@ -65,8 +68,7 @@ TOOLS: dict[str, tuple[str, dict, object]] = {
                         _obj({"slug": SLUG, "url": S, "title": S,
                               "reliability": {"type": "string", "enum": evidence.RELIABILITY}}, ["slug", "url"]),
                         lambda a: ["source", "fetch", a["slug"], a["url"]]
-                        + (["--title", a["title"]] if a.get("title") else [])
-                        + (["--reliability", a["reliability"]] if a.get("reliability") else [])),
+                        + _opt(a, ("title", "reliability"))),
     "sa_source_add": ("Зарегистрировать источник; текст (документ, слова пользователя, расшифровка) — из "
                       "аргумента text, сохраняется в sources/S###.md после очистки.",
                       _obj({"slug": SLUG, "title": S, "kind": {"type": "string", "enum": evidence.SOURCE_KINDS},
@@ -80,7 +82,7 @@ TOOLS: dict[str, tuple[str, dict, object]] = {
                               "source": {"type": "string", "description": "S001 или S001,S002"}, "quote": S,
                               "locator": S, "confidence": {"type": "string", "enum": evidence.CONFIDENCE},
                               "data_date": S, "by": S}, ["slug", "claim", "type"]),
-                        lambda a: ["evidence", "add", a["slug"], "--claim", a["claim"], "--type", a["type"]]
+                        lambda a: ["evidence", "add", a["slug"], f"--claim={a['claim']}", f"--type={a['type']}"]
                         + _opt(a, ("source", "quote", "locator", "confidence", "data_date", "by"))),
     "sa_evidence_list": ("Список доказательств с фильтрами.",
                          _obj({"slug": SLUG, "type": {"type": "string", "enum": evidence.EV_TYPES},
@@ -91,8 +93,8 @@ TOOLS: dict[str, tuple[str, dict, object]] = {
                                 "depends_on": {"type": "string", "description": "E001,E002,C003"},
                                 "kind": {"type": "string", "enum": evidence.CONCL_KINDS}, "note": S},
                                ["slug", "statement", "depends_on"]),
-                          lambda a: ["conclusion", "add", a["slug"], "--statement", a["statement"],
-                                     "--depends-on", a["depends_on"]] + _opt(a, ("kind", "note"))),
+                          lambda a: ["conclusion", "add", a["slug"], f"--statement={a['statement']}",
+                                     f"--depends-on={a['depends_on']}"] + _opt(a, ("kind", "note"))),
     "sa_impact": ("Что затронет изменение источника/доказательства/вывода; помечает выводы needs_review "
                   "(dry_run — только показать). Кратко; full — все строки файл:строка.",
                   _obj({"slug": SLUG, "ids": {"type": "string", "description": "S003 или E005,E006"},
@@ -105,6 +107,65 @@ TOOLS: dict[str, tuple[str, dict, object]] = {
                     lambda a: ["validate", a["slug"]] + (["--strict"] if a.get("strict") else [])),
     "sa_cost_report": ("Расходы по этапам и моделям, доля бюджета, время по этапам.",
                        _obj({"slug": SLUG}), lambda a: ["cost", "report"] + ([a["slug"]] if a.get("slug") else [])),
+    "sa_stage": ("Сменить этап/статус (без --force: переход без ворот невозможен; ворота ставит только человек).",
+                 _obj({"slug": SLUG, "stage": {"type": "string", "enum": STAGES},
+                       "status": {"type": "string", "enum": ["in_progress", "awaiting_human", "done"]},
+                       "next": S, "note": S}, ["slug", "stage"]),
+                 lambda a: ["stage", a["slug"], a["stage"]] + _opt(a, ("status", "next", "note"))),
+    "sa_log": ("Записать действие в журнал проекта (идемпотентно при одинаковом key).",
+               _obj({"slug": SLUG, "action": S, "target": S, "detail": S, "key": S, "failed": {"type": "boolean"}},
+                    ["slug", "action", "target"]),
+               lambda a: ["log", a["slug"], f"--action={a['action']}", f"--target={a['target']}"]
+               + _opt(a, ("detail", "key")) + (["--failed"] if a.get("failed") else [])),
+    "sa_cost_add": ("Записать расход токенов; повтор с тем же key не дублирует.",
+                    _obj({"slug": SLUG, "model": S, "input_tokens": INT, "output_tokens": INT, "stage": {"type": "string", "enum": STAGES},
+                          "note": S, "cache_read": INT, "cache_write": INT,
+                          "source": {"type": "string", "enum": ["manual", "estimate", "hook"]}, "key": S},
+                         ["slug", "model", "input_tokens", "output_tokens"]),
+                    lambda a: ["cost", "add", a["slug"], f"--model={a['model']}", f"--in={a['input_tokens']}",
+                               f"--out={a['output_tokens']}"] + _opt(a, ("stage", "note", "cache_read", "cache_write", "source", "key"))),
+    "sa_evidence_retract": ("Отозвать доказательство (и сразу показать impact).",
+                            _obj({"slug": SLUG, "id": S, "reason": S}, ["slug", "id", "reason"]),
+                            lambda a: ["evidence", "retract", a["slug"], a["id"], f"--reason={a['reason']}"]),
+    "sa_evidence_supersede": ("Заменить доказательство новым (и сразу показать impact).",
+                              _obj({"slug": SLUG, "id": S, "by": S, "reason": S}, ["slug", "id", "by"]),
+                              lambda a: ["evidence", "supersede", a["slug"], a["id"], f"--by={a['by']}"] + _opt(a, ("reason",))),
+    "sa_conclusion_update": ("Закрыть пересмотр вывода: новый статус/формулировка/зависимости.",
+                             _obj({"slug": SLUG, "id": S, "status": {"type": "string", "enum": evidence.CONCL_STATUSES},
+                                   "statement": S, "depends_on": S, "note": S, "full": {"type": "boolean"}}, ["slug", "id"]),
+                             lambda a: ["conclusion", "update", a["slug"], a["id"]]
+                             + _opt(a, ("status", "statement", "depends_on", "note")) + (["--full"] if a.get("full") else [])),
+    "sa_conclusion_review_order": ("Выводы needs_review в порядке зависимостей.", _obj({"slug": SLUG}, ["slug"]),
+                                   lambda a: ["conclusion", "review-order", a["slug"]]),
+    "sa_decision_add": ("Записать решение decisions/D###.md; повтор с тем же key или той же формулировкой и основаниями не дублируется.",
+                        _obj({"slug": SLUG, "decision": S, "owner": S, "based_on": {"type": "string", "description": "C004,C007"},
+                              "metrics": ARR, "triggers": ARR, "commitments": ARR, "date": S, "review_date": S,
+                              "context": S, "short_slug": S, "key": S},
+                             ["slug", "decision", "owner", "based_on", "metrics", "commitments"]),
+                        lambda a: ["decision", "add", a["slug"], f"--decision={a['decision']}", f"--owner={a['owner']}",
+                                   f"--based-on={a['based_on']}"]
+                        + [f"--metric={x}" for x in a.get("metrics", [])]
+                        + [f"--trigger={x}" for x in a.get("triggers", [])]
+                        + [f"--commitment={x}" for x in a.get("commitments", [])]
+                        + _opt(a, ("date", "review_date", "context", "key"))
+                        + ([f"--slug={a['short_slug']}"] if a.get("short_slug") else [])),
+    "sa_decision_review": ("Что пора пересмотреть (даты, основания, просроченные обязательства).",
+                           _obj({"slug": SLUG, "dry_run": {"type": "boolean"}}, ["slug"]),
+                           lambda a: ["decision", "review", a["slug"]] + (["--dry-run"] if a.get("dry_run") else [])),
+    "sa_decision_update": ("Закрыть пересмотр решения: статус и/или новая дата пересмотра.",
+                           _obj({"slug": SLUG, "id": S, "status": {"type": "string", "enum": decisions.STATUSES},
+                                 "review_date": S, "note": S}, ["slug", "id"]),
+                           lambda a: ["decision", "update", a["slug"], a["id"]] + _opt(a, ("status", "review_date", "note"))),
+    "sa_search": ("Поиск по формулировке в проекте (evidence/conclusions/sources/outputs, со связями E→C→D) "
+                  "или, при methods=true, по карточкам knowledge/methods.",
+                  _obj({"slug": SLUG, "query": S, "methods": {"type": "boolean"}}, ["query"]),
+                  lambda a: ["search"] + (["--methods", "--", a["query"]] if a.get("methods")
+                                          else ["--", a.get("slug", ""), a["query"]])),
+    "sa_route": ("Какой скилл и модель подходят запросу или этапу; escalate=true — проверить, не нужна ли сильная модель.",
+                 _obj({"slug": SLUG, "text": S, "stage": {"type": "string", "enum": STAGES}, "escalate": {"type": "boolean"}},
+                      ["slug"]),
+                 lambda a: ["route", a["slug"]] + _opt(a, ("stage",)) + (["--escalate"] if a.get("escalate") else [])
+                 + (["--", a["text"]] if a.get("text") else [])),
     "sa_report": ("Собрать итоговый отчёт outputs/report.html.", _obj({"slug": SLUG}, ["slug"]),
                   lambda a: ["report", a["slug"]]),
 }
@@ -114,7 +175,7 @@ def _opt(a: dict, keys) -> list[str]:
     out = []
     for k in keys:
         if a.get(k) not in (None, ""):
-            out += [f"--{k.replace('_', '-')}", str(a[k])]
+            out.append(f"--{k.replace('_', '-')}={a[k]}")  # --opt=value: значение вроде «-5%» не принимается за опцию
     return out
 
 
@@ -138,6 +199,10 @@ def _check_args(name: str, schema: dict, args: dict) -> None:
         p = props[k]
         if p.get("type") == "string" and not isinstance(v, str):
             raise RpcError(-32602, f"{name}: {k} должен быть строкой")
+        if p.get("type") == "integer" and (not isinstance(v, int) or isinstance(v, bool) or v < 0):
+            raise RpcError(-32602, f"{name}: {k} должен быть целым числом ≥ 0")
+        if p.get("type") == "array" and (not isinstance(v, list) or not all(isinstance(x, str) for x in v)):
+            raise RpcError(-32602, f"{name}: {k} должен быть массивом строк")
         if p.get("type") == "boolean" and not isinstance(v, bool):
             raise RpcError(-32602, f"{name}: {k} должен быть true/false")
         if "enum" in p and v not in p["enum"]:

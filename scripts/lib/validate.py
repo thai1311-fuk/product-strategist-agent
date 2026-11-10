@@ -29,6 +29,15 @@ PII_RE = {
     "телефон РФ": re.compile(r"(?:\+7|\b8)[\s(-]*\d{3}[\s)-]*\d{3}[\s-]*\d{2}[\s-]*\d{2}\b"),
     "email": re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"),
 }
+# Маркеры: [E012], [E001, E002], [E012; C003], [E146, отозвано], [S003, стр. 5]
+MARKER_GROUP_RE = re.compile(r"\[\s*[SECD]\d{3,}(?:\s*[,;]\s*(?:[SECD]\d{3,}|[^\[\]\n,;]{1,40}))*\s*\]")
+MARKER_ID_RE = re.compile(r"\b[SECD]\d{3,}\b")
+# Абзац-обещание или ключевое сообщение (тезис, слоган, гарантия, обращение к аудитории)
+PROMISE_RE = re.compile(r"обещан|обещ[аа]ем|гаранти|ключев\w+\s+сообщени|слоган|тезис|главн\w+\s+(?:сообщени|обещани)|"
+                        r"позиционировани|заголов", re.IGNORECASE)
+REVISION_RE = re.compile(r"Пересмотрено|опровергнут|отозван\w*\s+(?:и\s+)?(?:заменён|снят)|\bбыло\s*[—:-]", re.IGNORECASE)
+STALE_PLAN_RE = re.compile(r"ожидает\s+утверждени", re.IGNORECASE)
+STALE_OPTION_RE = re.compile(r"ждёт\s+(?:решени|выбор)|ожидает\s+(?:решени|выбор)|^\W*ожидается\W*$", re.IGNORECASE)
 TEMPLATE_SHARE = 0.3  # если ≥30% смысловых единиц содержат TODO — файл считается шаблоном
 DECISION_FIELDS = ["id", "date", "decision", "owner", "based_on", "metrics", "review_triggers", "commitments", "status"]
 
@@ -44,6 +53,15 @@ class Report:
 
     def warn(self, msg):
         self.warnings.append(msg)
+
+
+def markers_in(text: str) -> list[str]:
+    ids: list[str] = []
+    for group in MARKER_GROUP_RE.findall(text):
+        for i in MARKER_ID_RE.findall(group):
+            if i not in ids:
+                ids.append(i)
+    return ids
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -139,7 +157,7 @@ def heading_units(text: str) -> list[tuple[int, str]]:
         s = line.strip()
         if s.startswith("```"):
             in_code = not in_code
-        elif not in_code and s.startswith("#") and store.MARKER_GROUP_RE.search(s):
+        elif not in_code and s.startswith("#") and MARKER_GROUP_RE.search(s):
             out.append((n, s))
     return out
 
@@ -187,9 +205,10 @@ def _check_registries(pdir: Path, rep: Report, S: dict, E: dict, C: dict) -> Non
                 rep.err(f"{c['id']}: зависимость {d} не существует")
             elif c.get("status") in ("active", "revised") and dep.get("status") in ("retracted", "superseded"):
                 rep.err(f"{c['id']}: активный вывод опирается на {d} ({dep.get('status')}) — запустите sa.py impact")
-        if c.get("kind") == "recommendation" and c.get("status") in ("active", "revised") \
-                and _synthetic_only(c["id"], E, C):
-            rep.err(f"{c['id']}: рекомендация опирается только на синтетические данные — нужны реальные доказательства")
+        if c.get("status") in ("active", "revised") and _synthetic_only(c["id"], E, C) \
+                and not re.search(r"синтет|гипотез", c.get("statement") or "", re.IGNORECASE):
+            rep.err(f"{c['id']}: {'рекомендация' if c.get('kind') == 'recommendation' else 'вывод (' + str(c.get('kind')) + ')'} опирается только на синтетические данные и не помечен как гипотеза/"
+                    "синтетика — нужны реальные доказательства или честная пометка в формулировке")
         if c.get("status") == "needs_review":
             rep.warn(f"{c['id']}: ожидает пересмотра ({c.get('note') or 'impact'})")
 
@@ -218,7 +237,7 @@ def _check_markdown(pdir: Path, f: Path, rep: Report, S, E, C, D, check_numbers:
     rel = str(f.relative_to(pdir))
     heads = {n for n, _ in heading_units(text)}
     for n, unit in sorted(units(text) + heading_units(text)):
-        ids = store.markers_in(unit)
+        ids = markers_in(unit)
         flag = rep.warn if history else rep.err
         for i in ids:
             reg = {"S": S, "E": E, "C": C, "D": D}[i[0]]
@@ -231,7 +250,13 @@ def _check_markdown(pdir: Path, f: Path, rep: Report, S, E, C, D, check_numbers:
                 rep.err(f"{rel}:{n}: [{i}] — источник не разрешён (allowed=false)")
             elif i[0] == "E" and st != "active":
                 hint = f", замена: [{rec.get('superseded_by')}]" if st == "superseded" else ""
-                flag(f"{rel}:{n}: [{i}] имеет статус {st}{hint}")
+                if REVISION_RE.search(unit):
+                    rep.notes.append(f"{rel}:{n}: [{i}] ({st}) упомянут в блоке «Пересмотрено/было» — это история, не ошибка")
+                elif PROMISE_RE.search(unit) and not history:
+                    rep.err(f"{rel}:{n}: обещание/ключевое сообщение опирается на {st} доказательство [{i}]{hint} — "
+                            "перепишите абзац")
+                else:
+                    flag(f"{rel}:{n}: [{i}] имеет статус {st}{hint}")
             elif i[0] == "C" and st not in ("active", "revised"):
                 flag(f"{rel}:{n}: [{i}] имеет статус {st} — пересмотрите текст и вывод")
         if DEMAND_RE.search(unit):
@@ -244,7 +269,7 @@ def _check_markdown(pdir: Path, f: Path, rep: Report, S, E, C, D, check_numbers:
             if weak:
                 rep.warn(f"{rel}:{n}: вывод {', '.join(weak)} держится только на синтетике, а абзац говорит о спросе/доле")
         if check_numbers and n not in heads and not TEMPLATE_RE.search(unit):
-            stripped = store.MARKER_GROUP_RE.sub("", unit)
+            stripped = MARKER_GROUP_RE.sub("", unit)
             stripped = NON_FACT_NUM_RE.sub("", stripped)
             stripped = DATE_RE.sub("", LIST_NUM_RE.sub("", stripped))
             stripped = re.sub(r"\b[SECD]\d{3,}\b", "", stripped)
@@ -316,9 +341,89 @@ def _check_state(pdir: Path, rep: Report) -> None:
     idx = state.STAGES.index(st.get("stage")) if st.get("stage") in state.STAGES else -1
     if idx < 0:
         rep.err(f"state.json: неизвестный этап {st.get('stage')}")
-    for stage, gate in state.REQUIRED_GATE.items():
-        if idx >= state.STAGES.index(stage) and not st.get("gates", {}).get(gate):
-            rep.warn(f"state.json: этап {st.get('stage')} пройден без ворот {gate}")
+        return
+    miss = state.missing_gates(st, st["stage"])
+    if miss:
+        rep.err(f"state.json: этап {st.get('stage')} пройден без ворот {', '.join(miss)} — нужно решение человека "
+                f"(sa.py gate), иначе верните этап назад")
+    seen = state.visited_stages(st)
+    skipped = [x for x in state.STAGES[:idx] if x not in seen]
+    if skipped:
+        rep.warn(f"state.json: в истории нет этапов {', '.join(skipped)} — они пропущены")
+    acts = store.read_jsonl(pdir / "log" / "actions.jsonl")
+    for a in acts:
+        if a.get("action") == "gate" and a.get("actor") != "human" and a.get("ok", True) \
+                and a.get("detail") not in ("False", "None", ""):
+            rep.warn(f"log: ворота {a.get('target')} закрыты автором «{a.get('actor')}», а не человеком "
+                     f"({str(a.get('ts', ''))[:16]}) — подтвердите решение в чате")
+        if a.get("action") == "role_fallback":
+            rep.warn(f"log: роль выполнена не именованным субагентом (role_fallback: {store.truncate(a.get('target'), 60)}) — "
+                     "проверка независимости ослаблена")
+    _check_statuses(pdir, rep, st, acts)
+
+
+def _check_statuses(pdir: Path, rep: Report, st: dict, acts: list) -> None:
+    """Статусы в документах («ожидает утверждения», «ждёт решения», «ожидается») должны совпадать с state.json."""
+    gates = st.get("gates") or {}
+    out = pdir / "outputs"
+
+    def lines(name):
+        f = out / name
+        return list(enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1)) if f.is_file() else []
+
+    if gates.get("plan_approved"):
+        for n, line in lines("research_plan.md"):
+            if STALE_PLAN_RE.search(line):
+                rep.err(f"outputs/research_plan.md:{n}: статус «ожидает утверждения», а ворота plan_approved пройдены")
+    if gates.get("option_chosen"):
+        for n, line in lines("options.md"):
+            if re.search(r"Выбран вариант|Статус|Решение человека", line) and STALE_OPTION_RE.search(
+                    re.sub(r"^.*?Выбран вариант:\*\*", "", line)):
+                rep.err(f"outputs/options.md:{n}: «ждёт решения/ожидается», а в state.json option_chosen={gates['option_chosen']}")
+    if any(a.get("action") in ("consistency_check", "consistency_check_done") for a in acts):
+        for n, line in lines("comms_strategy.md"):
+            if re.search(r"Статус проверки", line) and re.search(r"ожидается", line, re.IGNORECASE):
+                rep.err(f"outputs/comms_strategy.md:{n}: проверка consistency-checker «ожидается», но в журнале она уже выполнена")
+    budget = st.get("budget_usd")
+    for rel in ("brief.md", "outputs/research_plan.md"):
+        f = pdir / rel
+        if not f.is_file() or not isinstance(budget, (int, float)):
+            continue
+        for n, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            m = re.search(r"[Бб]юджет агента[^\d\n]*(\d+(?:[.,]\d+)?)", line)
+            if m and abs(float(m.group(1).replace(",", ".")) - float(budget)) > 1e-9:
+                rep.warn(f"{rel}:{n}: бюджет {m.group(1)} не совпадает с state.json ({budget}) — обновите документ")
+
+
+def _check_data(pdir: Path, rep: Report) -> None:
+    """data/: ПДн и секреты в таблицах и результатах анализа (как в sources и transcripts)."""
+    try:
+        from . import sanitize  # noqa: PLC0415
+    except Exception:  # noqa: BLE001
+        sanitize = None
+    pii = getattr(sanitize, "scan_pii", None)
+    sec = getattr(sanitize, "scan_secrets", None)
+    for f in sorted((pdir / "data").rglob("*")):
+        if not f.is_file() or f.suffix.lower() not in (".csv", ".tsv", ".txt", ".md", ".json", ".jsonl", ".xml", ".html"):
+            continue
+        text = f.read_text(encoding="utf-8", errors="replace")
+        rel = f.relative_to(pdir)
+        found: list[str] = []
+        if pii:
+            try:
+                found = list(pii(text) or [])
+            except Exception:  # noqa: BLE001
+                found = []
+        found += [name for name, rx in PII_RE.items() if rx.search(text) and name not in found]
+        if found:
+            rep.err(f"{rel}: признаки персональных данных ({', '.join(found)}) — удалите или обезличьте файл")
+        if sec:
+            try:
+                secrets = list(sec(text) or [])
+            except Exception:  # noqa: BLE001
+                secrets = []
+            if secrets:
+                rep.err(f"{rel}: похоже на секрет ({', '.join(secrets)}) — удалите из репозитория и смените ключ")
 
 
 def run(pdir: Path) -> Report:
@@ -346,6 +451,7 @@ def run(pdir: Path) -> Report:
     _check_options(pdir, rep)
     _check_decisions(pdir, rep, C)
     _check_pii(pdir, rep)
+    _check_data(pdir, rep)
     return rep
 
 

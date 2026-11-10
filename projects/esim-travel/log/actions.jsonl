@@ -453,3 +453,4 @@
 {"ts": "2026-11-09T16:05:30+03:00", "session": "cli", "actor": "cli", "action": "validate", "target": "esim-travel", "ok": true, "key": "validate:esim-travel:2026-11-09T16:05:30+03:00", "detail": "ошибок 0, предупреждений 0"}
 {"ts": "2026-11-09T16:05:30+03:00", "session": "cli", "actor": "cli", "action": "report", "target": "/Users/thai/mgimo-strategist/projects/esim-travel/outputs/report.html", "ok": true, "key": "report:/Users/thai/mgimo-strategist/projects/esim-travel/outputs/report.html:2026-11-09T16:05:30+03:00", "detail": ""}
 {"ts": "2026-11-09T16:05:58+03:00", "session": "cli", "actor": "cli", "action": "validate", "target": "esim-travel", "ok": true, "key": "validate:esim-travel:2026-11-09T16:05:58+03:00", "detail": "ошибок 0, предупреждений 0"}
+{"ts": "2026-11-10T14:10:26+03:00", "session": "cli", "actor": "human", "action": "demo", "target": "on", "ok": true, "key": "demo:on:2026-11-10T14:10:26+03:00", "detail": ""}

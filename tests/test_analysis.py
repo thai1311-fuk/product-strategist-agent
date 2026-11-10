@@ -32,6 +32,7 @@ funnel = load("funnel")
 unit_econ = load("unit_econ")
 ab_size = load("ab_size")
 check_quotes = load("check_quotes")
+segment = load("segment")
 
 
 def run(script: str, *args: str) -> subprocess.CompletedProcess:
@@ -263,6 +264,83 @@ class TestCheckQuotes(unittest.TestCase):
         r = run("check_quotes.py", "--project-dir", str(self.p), "--since", "E002", "--sample", "2")
         self.assertEqual(r.returncode, 1)
         self.assertIn("Порог 20 %", r.stdout)
+
+
+class TestAuditFixes(unittest.TestCase):
+    def tmpcsv(self, text, enc="utf-8"):
+        d = tempfile.mkdtemp()
+        p = Path(d) / "t.csv"
+        p.write_bytes(text.encode(enc) if isinstance(text, str) else text)
+        return p
+
+    def test_ambiguous_number(self):  # 73
+        self.assertTrue(common.is_ambiguous_number("1,234"))
+        self.assertFalse(common.is_ambiguous_number("1,23"))
+        self.assertFalse(common.is_ambiguous_number("1 234,5"))
+        p = self.tmpcsv("step,users\na,\"1,234\"\nb,\"1,000\"\n")
+        res = funnel.from_agg(p)
+        self.assertTrue(any("неоднознач" in n for n in res["notes"]))
+        prof = profile.profile(str(p))
+        self.assertTrue(any("неоднознач" in f for col in prof["columns"] for f in col["flags"]))
+
+    def test_unit_econ_cac_zero(self):  # 74
+        r = run("unit_econ.py", "--arpu", "350", "--churn", "6%", "--cac", "0", "--margin", "0.6")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("не определён", r.stdout)
+
+    def test_read_csv_errors(self):  # 75
+        with self.assertRaises(SystemExit):
+            common.read_csv(self.tmpcsv(""))
+        with self.assertRaises(SystemExit):
+            common.read_csv(self.tmpcsv(bytes([0x61, 0x0a, 0x98, 0x81, 0x0a])))  # не utf-8 и не cp1251 (0x98 не определён)
+        h, rows, _ = common.read_csv(self.tmpcsv('a,b\n"line1\nline2",2\n'))
+        self.assertEqual(rows[0]["a"], "line1\nline2")
+
+    def test_parse_date_time(self):  # 76
+        for v in ("2026-08-01 10:15", "2026-08-01 10:15:30.123", "2026-08-01T10:15:30.5Z", "01.08.2026 10:15:30"):
+            self.assertEqual(common.parse_date(v)[0].isoformat(), "2026-08-01", v)
+
+    def test_ab_size_bad_mde(self):  # 77
+        r = run("ab_size.py", "--baseline", "0.95", "--mde-rel", "10%")
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_slug_validation(self):  # 78
+        with self.assertRaises(SystemExit):
+            common.project_path("../x")
+        r = run("check_quotes.py", "../x")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_check_quotes_table_source(self):  # 72 + 79
+        d = Path(tempfile.mkdtemp())
+        (d / "data").mkdir()
+        (d / "data" / "t.csv").write_text("region,sales\nМосква,1500\n", encoding="utf-8")
+        (d / "sources.jsonl").write_text('{"id":"S001","title":"т","locator":"data/t.csv","kind":"table"}\nBROKEN\n', encoding="utf-8")
+        (d / "evidence.jsonl").write_text(
+            '{"id":"E001","claim":"Москва 1500","type":"fact","source_ids":["S001"],"quote":"Москва,1500","status":"active"}\n',
+            encoding="utf-8")
+        res = check_quotes.check(d)
+        self.assertEqual(res[0]["problems"], [])
+
+    def test_segment_case_a(self):  # 60
+        ev = ROOT / "evals" / "cases" / "a" / "data" / "events.csv"
+        if not ev.exists():
+            self.skipTest("нет данных кейса A")
+        r = run("segment.py", "--csv", str(ev), "--date-col", "event_date", "--base-event", "onboarding_start",
+                "--target-event", "onboarding_complete", "--split", "2026-09-01", "--segments", "platform,channel")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("platform=android", r.stdout)
+
+    def test_segment_concentration(self):
+        d = tempfile.mkdtemp()
+        p = Path(d) / "o.csv"
+        lines = ["date,seg,v"]
+        for i in range(100):
+            lines += [f"2026-01-05,a,{1 if i < 80 else 0}", f"2026-01-05,b,{1 if i < 80 else 0}",
+                      f"2026-02-05,a,{1 if i < 40 else 0}", f"2026-02-05,b,{1 if i < 80 else 0}"]
+        p.write_text("\n".join(lines), encoding="utf-8")
+        r = run("segment.py", "--csv", str(p), "--value-col", "v", "--split", "2026-02-01", "--segments", "seg")
+        self.assertIn("сосредоточено в «seg=a»", r.stdout)
 
 
 class TestCLI(unittest.TestCase):

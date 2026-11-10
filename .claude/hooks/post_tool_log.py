@@ -78,9 +78,16 @@ def main() -> None:
         return
     session = str(data.get("session_id") or "claude-code")
     tuid = data.get("tool_use_id") or ""
-    store.log_action(pdir, tool.lower(), store.truncate(mask(raw_target), 160), ok=ok_of(data.get("tool_response")),
+    ok = ok_of(data.get("tool_response"))
+    store.log_action(pdir, tool.lower(), store.truncate(mask(raw_target), 160), ok=ok,
                      actor="claude-code", session=session,
                      key=f"{session}:{tuid}" if tuid else None)
+    if tool in ("Task", "Agent"):  # субагент: PostToolUse срабатывает по окончании — пишем <действие>_end
+        resp = data.get("tool_response")
+        dur = resp.get("totalDurationMs") or resp.get("duration_ms") if isinstance(resp, dict) else None
+        store.log_action(pdir, f"{tool.lower()}_end", store.truncate(mask(raw_target), 160), ok=ok,
+                         actor="claude-code", session=session, detail=f"{dur} мс" if dur else "",
+                         key=f"{session}:{tuid}:end" if tuid else None)
 
 
 if __name__ == "__main__":

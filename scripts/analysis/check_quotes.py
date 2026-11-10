@@ -107,9 +107,30 @@ def quote_in(quote: str, text: str) -> bool:
 
 
 def load_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    """Чтение реестра через store.read_jsonl (битые строки пропускаются, как во всём проекте)."""
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    from lib import store  # noqa: PLC0415
+    return store.read_jsonl(path)
+
+
+def source_files(project: Path, sid: str, src: dict | None) -> list[Path]:
+    """Где искать текст источника: sources/S###.md; для kind=table — таблица в data/ (или по locator)."""
+    out = []
+    f = project / "sources" / f"{sid}.md"
+    if f.is_file():
+        out.append(f)
+    if src and src.get("kind") == "table":
+        loc = (src.get("locator") or "").split("#")[0].strip()
+        cands = []
+        if loc:
+            cands += [project / loc, project / "data" / Path(loc).name]
+        for cand in cands:
+            try:
+                if cand.is_file() and cand.resolve().is_relative_to(project.resolve()) and cand not in out:
+                    out.append(cand)
+            except OSError:
+                pass
+    return out
 
 
 def id_num(eid: str) -> int:
@@ -122,8 +143,8 @@ def check(project: Path, ids=None, since=None) -> list[dict]:
         ev = [e for e in ev if e["id"] in ids]
     if since:
         ev = [e for e in ev if id_num(e["id"]) >= id_num(since)]
-    titles = {x["id"]: x.get("title", "") + " " + x.get("locator", "")
-              for x in load_jsonl(project / "sources.jsonl")}
+    srcs_all = {x["id"]: x for x in load_jsonl(project / "sources.jsonl")}
+    titles = {k: x.get("title", "") + " " + x.get("locator", "") for k, x in srcs_all.items()}
     results = []
     for e in ev:
         r = {"id": e["id"], "type": e.get("type"), "claim": e.get("claim", ""), "quote": e.get("quote") or "",
@@ -134,11 +155,12 @@ def check(project: Path, ids=None, since=None) -> list[dict]:
         if r["quote"] and srcs:
             texts = []
             for s in srcs:
-                f = project / "sources" / f"{s}.md"
-                if f.exists():
-                    texts.append(f.read_text(encoding="utf-8"))
+                files = source_files(project, s, srcs_all.get(s))
+                if files:
+                    texts.extend(f.read_text(encoding="utf-8", errors="replace") for f in files)
                 else:
-                    r["problems"].append(f"нет текста источника sources/{s}.md")
+                    r["problems"].append(f"нет текста источника sources/{s}.md"
+                                         + (" и таблицы в data/" if (srcs_all.get(s) or {}).get("kind") == "table" else ""))
             loc = e.get("locator") or ""
             report = project / loc.split("#")[0] if loc else None
             if report and report.is_file() and e.get("type") == "estimate":
@@ -169,7 +191,12 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     if not (a.slug or a.project_dir):
         p.error("укажите slug или --project-dir")
-    project = Path(a.project_dir) if a.project_dir else REPO_ROOT / "projects" / a.slug
+    if a.project_dir:
+        project = Path(a.project_dir)
+    else:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import _common as c  # noqa: PLC0415
+        project = c.project_path(a.slug)
     ids = {x.strip() for x in a.ids.split(",")} if a.ids else None
     res = check(project, ids, a.since)
     bad = [r for r in res if r["problems"]]

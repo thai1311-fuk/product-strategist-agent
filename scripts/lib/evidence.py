@@ -62,7 +62,7 @@ class _TextExtractor(HTMLParser):
              "h5", "h6", "header", "footer", "blockquote", "pre", "hr", "dd", "dt", "main", "aside", "nav"}
     VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 
-    def __init__(self):
+    def __init__(self, hidden_sel=frozenset()):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.skip_stack: list[str] = []
@@ -71,14 +71,17 @@ class _TextExtractor(HTMLParser):
         self.hidden_dropped = 0
         self.og_title = ""
         self.hidden_parts: list[str] = []
+        self.comments: list[str] = []
+        self.hidden_sel = hidden_sel
         self._skip_hidden = False  # текущий пропуск — скрытый элемент (а не script/style)
 
-    @staticmethod
-    def _hidden(attrs) -> bool:
-        a = {k.lower(): (v or "") for k, v in attrs}
-        style = a.get("style", "").replace(" ", "").lower()
-        return ("hidden" in a or a.get("aria-hidden") == "true" or "display:none" in style
-                or "visibility:hidden" in style or "font-size:0" in style)
+    def _hidden(self, tag, attrs) -> bool:
+        """Одна функция «скрытый элемент» на оба пути загрузки — sanitize._is_hidden."""
+        san = load_sanitize(required=True)
+        return san._is_hidden(attrs, tag, self.hidden_sel)
+
+    def handle_comment(self, data):
+        self.comments.append(data)
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
@@ -92,7 +95,7 @@ class _TextExtractor(HTMLParser):
             if tag in self.BLOCK and not self.skip_stack:
                 self.parts.append("\n")
             return
-        if self.skip_stack or tag in self.SKIP or self._hidden(attrs):
+        if self.skip_stack or tag in self.SKIP or self._hidden(tag, attrs):
             if not self.skip_stack:
                 self._skip_hidden = tag not in self.SKIP
                 if self._skip_hidden:
@@ -147,12 +150,19 @@ def _looks_html(text: str) -> bool:
     return head.startswith(("<!doctype", "<html")) or bool(re.search(r"<(body|div|p|head)\b", text[:5000], re.I))
 
 
-def html_parse(html: str) -> tuple[str, str, str]:
-    """(видимый текст, заголовок, скрытый текст — элементы hidden/display:none/aria-hidden и т.п.)."""
-    p = _TextExtractor()
+def html_parse_full(html: str) -> tuple[str, str, str, list[str]]:
+    """(видимый текст, заголовок, скрытый текст, удалённые HTML-комментарии)."""
+    san = load_sanitize(required=True)
+    p = _TextExtractor(san.hidden_selectors(html))
     p.feed(html)
     p.close()
-    return p._tidy("".join(p.parts)), clean_title(p.og_title or p.title), p._tidy("".join(p.hidden_parts))
+    return p._tidy("".join(p.parts)), clean_title(p.og_title or p.title), p._tidy("".join(p.hidden_parts)), p.comments
+
+
+def html_parse(html: str) -> tuple[str, str, str]:
+    """(видимый текст, заголовок, скрытый текст — hidden/display:none/CSS-классы/белый шрифт и т.п.)."""
+    v, t, h, _c = html_parse_full(html)
+    return v, t, h
 
 
 _TITLE_SEP = re.compile(r"\s+(?:\||—|–|-|/|::|·|»)\s+")
@@ -213,8 +223,11 @@ def _clean(text: str, required: bool, user_file: bool = False) -> tuple[str, lis
     san = load_sanitize(required)
     hidden = ""
     flags: list[str] = []
+    comments: list[str] = []
     if _looks_html(text):
-        text, _, hidden = html_parse(text)
+        text, _, hidden, comments = html_parse_full(text)
+    if comments:
+        flags.append("html_comment_removed")
     if san is None:
         flags.append("not_sanitized")
         clean, hclean = text, hidden
@@ -230,10 +243,67 @@ def _clean(text: str, required: bool, user_file: bool = False) -> tuple[str, lis
         if hidden:
             hclean, f2 = san.sanitize_text(hidden)
             flags += list(f2 or [])
+    if comments and san is not None:  # комментарий удалён из текста; подозрительный — сохраняем с пометкой
+        for c in comments:
+            ctext, cflags = san.sanitize_text(c)
+            if "injection_suspected" in cflags:
+                flags += ["injection_suspected"] + [f for f in cflags if f != "injection_suspected"]
+                hclean = f"{hclean}\n[комментарий HTML] {ctext.strip()}".strip()
+                hidden = hidden or "x"
     if hidden:
         flags.append("hidden_content")
         clean = f"{clean.rstrip()}\n\n{HIDDEN_BLOCK}\n{hclean.strip()}\n"
     return clean, sorted(set(flags))
+
+
+_BLOCKED_SRC_DIRS = {"outputs", "decisions"}
+
+
+def _reject_agent_output(pdir: Path, locator: str, file: str | None) -> None:
+    """Результаты самого агента (outputs/, decisions/) — не источники: иначе вывод станет «фактом»."""
+    cands = []
+    if file:
+        try:
+            cands.append(Path(file).expanduser().resolve())
+        except OSError:
+            pass
+    loc = (locator or "").strip()
+    if loc and not re.match(r"^[a-z][a-z0-9+.-]*://", loc, re.I):
+        try:
+            cands.append(Path(loc).expanduser().resolve())
+        except OSError:
+            pass
+        cands.append(Path(loc.replace("\\", "/")))
+    for c in cands:
+        parts = c.parts
+        for i, part in enumerate(parts):
+            if part == "projects" and len(parts) > i + 2 and parts[i + 2] in _BLOCKED_SRC_DIRS:
+                raise SAError("outputs/ и decisions/ — результаты агента, а не источники: на них нельзя "
+                              "опираться как на факты. Добавляйте исходные материалы, из которых они получены.")
+        try:
+            if c.relative_to(Path(pdir).resolve()).parts[0] in _BLOCKED_SRC_DIRS:
+                raise SAError("outputs/ и decisions/ — результаты агента, а не источники.")
+        except (ValueError, IndexError):
+            pass
+        if c.parts and c.parts[0] in _BLOCKED_SRC_DIRS:
+            raise SAError("outputs/ и decisions/ — результаты агента, а не источники.")
+
+
+def _require_consent(pdir: Path, title: str, locator: str, notes: str) -> None:
+    """kind=interview: в title/locator/notes должен быть псевдоним из interviews/consent_log.md."""
+    log = Path(pdir) / "interviews" / "consent_log.md"
+    pseudonyms: list[str] = []
+    if log.is_file():
+        for ln in log.read_text(encoding="utf-8", errors="replace").splitlines():
+            cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+            if ln.lstrip().startswith("|") and len(cells) >= 2 and cells[0] and not set(cells[0]) <= set("-: ") \
+                    and cells[0].lower() not in ("псевдоним", "pseudonym", "код"):
+                pseudonyms.append(cells[0])
+    hay = f"{title} {locator} {notes}"
+    if not any(re.search(rf"(?<!\w){re.escape(p)}(?!\w)", hay, re.I) for p in pseudonyms):
+        raise SAError("Интервью без записи о согласии: в interviews/consent_log.md нет псевдонима респондента, "
+                      "упомянутого в названии/локаторе/заметках источника. Сначала впишите строку "
+                      "«| псевдоним | дата | согласие | канал |» и укажите псевдоним (Р1…) в --title.")
 
 
 def add_source(pdir: Path, title: str, locator: str, kind: str, reliability: str = "medium",
@@ -242,13 +312,20 @@ def add_source(pdir: Path, title: str, locator: str, kind: str, reliability: str
     _choice(kind, SOURCE_KINDS, "kind")
     _choice(reliability, RELIABILITY, "reliability")
     flags = list(flags or [])
-    if kind == "web" and re.match(r"^https?://", locator or "", re.IGNORECASE):
-        san = load_sanitize(required=True)
-        ok, why = san.is_allowed_url(locator)
+    san0 = load_sanitize(required=True)
+    # заголовок тоже недоверенный (<title>, og:title): очищаем, подозрительное в источник не пишем
+    title, tflags = san0.sanitize_title(title or "")
+    flags += tflags
+    title = title or "(без названия)"
+    _reject_agent_output(pdir, locator, file)
+    if re.match(r"^\s*https?://", locator or "", re.IGNORECASE):  # allowlist — для любого kind
+        ok, why = san0.is_allowed_url(locator.strip())
         if not ok:
-            raise SAError(f"Веб-источник не разрешён allowlist: {why}. Источник не записан. Если это открытый "
+            raise SAError(f"Источник с адресом не разрешён allowlist: {why}. Источник не записан. Если это открытый "
                           "источник и пользователь прямо подтвердил — добавьте домен: "
                           "python3 scripts/sa.py allow <домен> --reason «зачем» (это изменение правил).")
+    if kind == "interview":
+        _require_consent(pdir, title, locator, notes)
     path = pdir / "sources.jsonl"
     with store.locked(path):
         rows = store.read_jsonl(path)
@@ -265,7 +342,16 @@ def add_source(pdir: Path, title: str, locator: str, kind: str, reliability: str
             ext = src.suffix.lower()
             if ext in TABLE_EXT:
                 dst = pdir / "data" / f"{sid}-{re.sub(r'[^A-Za-z0-9._-]', '_', src.name)}"
-                shutil.copyfile(src, dst)
+                raw_tbl = src.read_text(encoding="utf-8", errors="replace")
+                found_sec = san0.scan_secrets(raw_tbl)
+                if found_sec:
+                    raise SAError(f"В таблице найдены секреты ({', '.join(found_sec)}). Файлы проекта хранятся в "
+                                  "репозитории, поэтому таблица не сохранена: удалите ключи/пароли и повторите.")
+                masked, pii_hit = san0.mask_pii_lines(raw_tbl)
+                if pii_hit:
+                    flags += ["pii_suspected", "table_pii_masked"]
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                store.atomic_write_text(dst, masked)
                 stored = str(dst.relative_to(pdir))
                 if kind == "web":
                     kind = "table"
@@ -508,30 +594,11 @@ def allow_domain(domain: str, reason: str) -> tuple[str, str]:
     san = load_sanitize(required=True)
     if not reason or not reason.strip():
         raise SAError("Укажите причину: --reason «зачем нужен источник» (записывается в allowlist).")
-    raw = domain.strip()
-    host = urllib.parse.urlsplit(raw if "://" in raw else f"https://{raw}").hostname or ""
-    host = host.lower().lstrip("*.").rstrip(".")
-    if host.startswith("www."):  # домен разрешает и поддомены — www. не нужен
-        host = host[4:]
-    try:
-        host = host.encode("idna").decode("ascii")
-    except UnicodeError:
-        raise SAError(f"Некорректный домен: {domain}") from None
-    if not host or "." not in host:
-        raise SAError(f"Некорректный домен: {domain}")
-    checker = getattr(san, "check_url", None)
-    if checker:
-        ok, why, cat = checker(f"https://{host}/")
-        if cat == "denied":
-            raise SAError(f"Домен нельзя разрешить: {why}")
-        if ok:
-            return host, "exists"
-    else:
-        ok, why = san.is_allowed_url(f"https://{host}/")
-        if ok:
-            return host, "exists"
-        if "не входит в allowlist" not in why:
-            raise SAError(f"Домен нельзя разрешить: {why}")
+    host, status, why = san.allow_domain_check(domain)
+    if status == "denied":
+        raise SAError(f"Домен нельзя разрешить: {why}")
+    if status == "exists":
+        return host, "exists"
     path = store.CONFIG_DIR / "allowed_sources.json"
     with store.locked(path):
         cfg = store.read_json(path)
@@ -571,6 +638,28 @@ def _norm(s: str) -> str:
 
 # ---------- доказательства ----------
 
+def _searchable_text(pdir: Path, src: dict) -> str:
+    """Текст источника для сверки цитат: тело без служебного заголовка и без блока скрытого содержимого;
+    для таблиц — сам файл из data/."""
+    parts = []
+    t = source_text(pdir, src.get("id", ""))
+    if t:
+        m = re.search(r"<<<SOURCE [^\n]*>>>\n", t)
+        body = t[m.end():] if m else t
+        body = body.split(HIDDEN_BLOCK)[0]
+        parts.append(body)
+    stored = src.get("stored") or ""
+    if stored.startswith("data/"):
+        f = (Path(pdir) / stored).resolve()
+        try:
+            f.relative_to((Path(pdir) / "data").resolve())
+            if f.is_file():
+                parts.append(f.read_text(encoding="utf-8", errors="replace"))
+        except (ValueError, OSError):
+            pass
+    return "\n".join(parts)
+
+
 def add_evidence(pdir: Path, claim: str, etype: str, source_ids: list[str] | None = None, quote: str = "",
                  locator: str = "", confidence: str = "medium", data_date: str = "",
                  added_by: str = "analyst") -> dict:
@@ -599,10 +688,14 @@ def add_evidence(pdir: Path, claim: str, etype: str, source_ids: list[str] | Non
 
     quote_verified = None
     if quote:
-        texts = [source_text(pdir, s) for s in source_ids]
-        texts = [t for t in texts if t]
+        texts = [t for t in (_searchable_text(pdir, sources[s_]) for s_ in source_ids) if t]
         if texts:
             quote_verified = any(_norm(quote) in _norm(t) for t in texts)
+        if etype == "fact" and not quote_verified:
+            why = ("текст источника недоступен для проверки (нет sources/S###.md и таблицы в data/)"
+                   if not texts else "цитата не найдена дословно в тексте источника")
+            raise SAError(f"Тип fact отклонён: {why}. Скопируйте фрагмент точно как в sources/S###.md "
+                          "(для таблицы — как в data/) или выберите тип estimate/hypothesis.")
 
     path = pdir / "evidence.jsonl"
     with store.locked(path):

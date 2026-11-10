@@ -104,6 +104,44 @@ class TestMCP(unittest.TestCase):
         self.proc.stdin.flush()
         self.assertEqual(json.loads(self.proc.stdout.readline())["error"]["code"], -32700)
 
+    def test_4_write_tools(self):
+        tools = {t["name"] for t in self.rpc("tools/list")["result"]["tools"]}
+        for n in ("sa_stage", "sa_log", "sa_cost_add", "sa_evidence_retract", "sa_evidence_supersede",
+                  "sa_conclusion_update", "sa_conclusion_review_order", "sa_decision_add", "sa_decision_review",
+                  "sa_decision_update", "sa_search", "sa_route"):
+            self.assertIn(n, tools)
+        # без --force: параметра force нет, переход без ворот отклоняется
+        r = self.rpc("tools/call", {"name": "sa_stage", "arguments": {"slug": "demo", "stage": "collect", "force": True}})
+        self.assertEqual(r["error"]["code"], -32602)
+        r = self.call("sa_stage", slug="demo", stage="collect")
+        self.assertTrue(r["isError"])
+        r = self.call("sa_stage", slug="demo", stage="plan", status="awaiting_human", next="-5% ждём ответ")
+        self.assertFalse(r["isError"], r)
+        # значение, начинающееся с «-», не принимается за опцию
+        r = self.call("sa_evidence_add", slug="demo", claim="-5% к выручке", type="hypothesis")
+        self.assertFalse(r["isError"], r)
+        r = self.call("sa_log", slug="demo", action="note", target="-x", key="k1")
+        self.assertFalse(r["isError"], r)
+        r = self.call("sa_cost_add", slug="demo", model="haiku", input_tokens=100, output_tokens=10, key="c1")
+        self.assertFalse(r["isError"], r)
+        r = self.call("sa_cost_add", slug="demo", model="haiku", input_tokens=100, output_tokens=10, key="c1")
+        self.assertIn("уже есть", r["content"][0]["text"])
+        r = self.call("sa_decision_add", slug="demo", decision="Решение", owner="Роль", based_on="C001",
+                      metrics=["m: 1 → 2"], commitments=["кто: сделать к 2027-01-01"], review_date="2027-03-01")
+        self.assertFalse(r["isError"], r)
+        r = self.call("sa_decision_add", slug="demo", decision="Решение", owner="Роль", based_on="C001",
+                      metrics=["m: 1 → 2"], commitments=["кто: сделать к 2027-01-01"], review_date="2027-03-01")
+        self.assertIn("уже записано", r["content"][0]["text"])
+        r = self.call("sa_decision_update", slug="demo", id="D001", review_date="2027-06-01")
+        self.assertFalse(r["isError"], r)
+        self.assertFalse(self.call("sa_decision_review", slug="demo", dry_run=True)["isError"])
+        self.assertFalse(self.call("sa_conclusion_review_order", slug="demo")["isError"])
+        r = self.call("sa_search", slug="demo", query="-5% выручке")
+        self.assertIn("E00", r["content"][0]["text"])
+        r = self.call("sa_search", query="интервью", methods=True)
+        self.assertIn("problem-interview", r["content"][0]["text"])
+        self.assertFalse(self.call("sa_route", slug="demo", text="собери источники")["isError"])
+
 
 class TestMCPConfig(unittest.TestCase):
     def test_configs(self):

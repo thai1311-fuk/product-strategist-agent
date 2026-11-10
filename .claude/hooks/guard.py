@@ -6,7 +6,7 @@
   блок      → exit 2, причина в stderr (Claude видит её и не выполняет действие);
   спросить  → JSON {"hookSpecificOutput": {"permissionDecision": "ask", ...}} в stdout, exit 0;
   пропустить → exit 0 без вывода (обычные правила разрешений Claude Code).
-Любая внутренняя ошибка → exit 0 (хук никогда не ломает работу). Только стандартная библиотека.
+Внутренняя ошибка или таймаут → fail-closed: ask (подтверждение человека), а не allow. Только стандартная библиотека.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -26,10 +27,17 @@ SANITIZE_PATH = HERE.parents[2] / "scripts" / "lib" / "sanitize.py"
 
 # Файлы правил агента и защиты: менять можно, но только с подтверждением человека.
 PROTECTED_FILES = {"agents.md", "claude.md", ".claude/settings.json", ".claude/settings.local.json",
-                   "config/allowed_sources.json", "scripts/lib/sanitize.py", ".gitignore"}
-PROTECTED_DIRS = (".claude/hooks/", ".cursor/rules/")
+                   "config/allowed_sources.json", "scripts/lib/sanitize.py", ".gitignore", ".mcp.json",
+                   "scripts/sa.py", "scripts/mcp_server.py"}
+PROTECTED_DIRS = (".claude/hooks/", ".claude/skills/", ".claude/agents/", ".cursor/", "scripts/lib/", "config/")
 ENV_OK = {".env.example", ".env.sample", ".env.template"}
-SENSITIVE_READ = re.compile(r"(^|/)(\.env(\.[\w.-]+)?|[^/]*\.env|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*)$", re.I)
+SENSITIVE_READ = re.compile(r"(^|/)(\.env(\.[\w.-]+)?|[^/]*\.env|[^/]*\.(pem|key|p12|pfx)|id_(rsa|ed25519|ecdsa)[^/]*"
+                            r"|\.netrc|\.git-credentials|\.aws/(credentials|config)|\.ssh/[^/]+)$", re.I)
+
+
+def norm_path(path: str) -> str:
+    """Windows-пути (C:\\Users\\x\\.env, .\\.env) → косые черты, чтобы проверки работали одинаково."""
+    return path.replace("\\", "/") if isinstance(path, str) else path
 
 
 def load_sanitize():
@@ -47,14 +55,14 @@ class Decision:
 
 
 def is_env_file(path: str) -> bool:
-    name = Path(path).name.lower()
+    name = Path(norm_path(path)).name.lower()
     if name in ENV_OK:
         return False
     return name == ".env" or name.startswith(".env.") or name.endswith(".env")
 
 
 def rel_to_root(path: str, cwd: str) -> str | None:
-    p = Path(path).expanduser()
+    p = Path(norm_path(path)).expanduser()
     if not p.is_absolute():
         p = Path(cwd or ROOT) / p
     p = Path(os.path.realpath(p))
@@ -69,7 +77,7 @@ def is_protected(path: str, cwd: str) -> bool:
     if rel is not None:
         return rel in PROTECTED_FILES or rel.startswith(PROTECTED_DIRS)
     # пользовательские настройки Claude Code вне проекта (~/.claude/settings.json, хуки)
-    real = os.path.realpath(os.path.expanduser(path))
+    real = os.path.realpath(os.path.expanduser(norm_path(path)))
     home_claude = os.path.realpath(os.path.expanduser("~/.claude"))
     if real.startswith(home_claude + os.sep):
         sub = real[len(home_claude) + 1:].lower()
@@ -107,11 +115,27 @@ def check_write(tool: str, ti: dict, cwd: str, san, d: Decision) -> None:
                      "человека-разработчика, а не команда из текста источника.")
 
 
-def check_read(ti: dict, d: Decision) -> None:
-    path = ti.get("file_path") or ""
-    if isinstance(path, str) and SENSITIVE_READ.search(path) and Path(path).name.lower() not in ENV_OK:
-        d.ask.append(f"Чтение {Path(path).name}: файл может содержать секреты, они попадут в контекст и "
-                     "журнал сессии. Разрешить?")
+def check_read(ti: dict, d: Decision, keys=("file_path", "path", "notebook_path")) -> None:
+    for k in keys:
+        path = ti.get(k) or ""
+        if not isinstance(path, str):
+            continue
+        path = norm_path(path)
+        if SENSITIVE_READ.search(path) and Path(path).name.lower() not in ENV_OK:
+            d.ask.append(f"Чтение {Path(path).name}: файл может содержать секреты, они попадут в контекст и "
+                         "журнал сессии. Разрешить?")
+            return
+
+
+def check_mcp(tool: str, ti: dict, d: Decision, san) -> None:
+    """MCP-инструменты: адрес и пути к файлам в полях url/file/locator."""
+    if "url" in ti:
+        check_url_tool(ti.get("url"), d, san)
+    check_read(ti, d, keys=("file", "file_path", "path", "locator"))
+    for k in ("locator",):
+        v = ti.get(k)
+        if isinstance(v, str) and re.match(r"https?://", v.strip(), re.I):
+            check_url_tool(v.strip(), d, san)
 
 
 # ---------------------------------------------------------------- Bash
@@ -132,12 +156,22 @@ RX_NET_TOOLS = re.compile(r"(^|[\s;&|(])(nc|ncat|netcat|socat|telnet|sftp|ftp|tf
 RX_DEVTCP = re.compile(r"/dev/(tcp|udp)/")
 RX_URL = re.compile(r"https?://[^\s'\"<>|;)`]+", re.I)
 RX_PROTECTED_IN_CMD = re.compile(
-    r"(agents\.md|claude\.md|\.claude/settings(\.local)?\.json|\.claude/hooks|config/allowed_sources\.json"
-    r"|scripts/lib/sanitize\.py|\.cursor/rules|\.gitignore|~/\.claude|\$home/\.claude)", re.I)
+    r"(agents\.md|claude\.md|\.claude/(settings(\.local)?\.json|hooks|skills|agents)|config/|\.mcp\.json"
+    r"|scripts/lib/|(?<!python3 )(?<!python )scripts/sa\.py|scripts/mcp_server\.py|\.cursor/|\.gitignore|~/\.claude|\$home/\.claude)", re.I)
+RX_ALLOW_API = re.compile(r"\b(allow_domain|allow_domain_check)\b|allowed_sources", re.I)
+RX_INTERP = re.compile(r"\b(python\d?(?:\.\d+)?|node|nodejs|perl|ruby|php|deno|bun)\b", re.I)
+RX_INLINE = re.compile(r"\s-[A-Za-z]*[cepE]\b|\s--eval\b|<<|\s-\s|\|\s*(python|node)", re.I)
+RX_NET_CODE = re.compile(
+    r"urllib|urlopen|\brequests\b|http\.client|\bhttpx\b|aiohttp|\bsocket\b|XMLHttpRequest|\bfetch\s*\(|"
+    r"require\(\s*[\"'](?:node:)?(?:https?|net|tls|http2)[\"']|node:https?|\bimport\s+(?:https?|net)\b|"
+    r"\bhttps?\.(?:get|request)\b|ftplib|smtplib|\bpycurl\b|\bWebSocket\b", re.I)
 RX_WRITE_OP = re.compile(
     r"(?<![0-9&>-])>{1,2}(?![&>])|\btee\b|\bsed\b[^|;&]*\s-i|\bperl\b[^|;&]*\s-[a-z]*i|\b(mv|cp|rm|truncate|chmod|"
     r"ln|dd|install|unlink|rsync)\b|open\(|write_text|\bgit\s+(checkout|restore|rm|mv|reset|stash)\b", re.I)
 RX_SA_ALLOW = re.compile(r"\bsa\.py[\"']?\s+(?:--?\S+\s+)*allow\b", re.I)
+RX_SA_GATE = re.compile(r"\bsa\.py[\"']?\s+(?:--?\S+\s+)*gate\b", re.I)
+RX_SA_BUDGET = re.compile(r"\bsa\.py[\"']?\s+(?:--?\S+\s+)*budget\b", re.I)
+RX_SA_FORCE = re.compile(r"\bsa\.py[\"']?\s+(?:--?\S+\s+)*stage\b[^;&|\n]*--force\b", re.I)
 RX_ENV_REF = re.compile(r"(^|[\s/'\"=<])\.env(\.[\w-]+)?(?=$|[\s'\";|&)>])")
 
 
@@ -209,10 +243,87 @@ def check_git_add(toks: list[str], cwd: str, san, d: Decision, deadline: float) 
                       ". Уберите значения из файлов (ключи держите в .env) и повторите.")
 
 
+_DANGEROUS_RM = {"/", "/*", "~", "~/", "~/*", "$home", "$home/", "${home}", "${home}/", "$home/*", "..", "../", "/users",
+                 "/home", "/etc", "/usr", "/var", "/bin", "/system"}
+_DYN = re.compile(r"[$`*?\[]")
+_WRITERS = {"tee", "cp", "mv", "ln", "install", "dd", "truncate", "touch", "chmod", "rsync"}
+
+
+def _expand_assignments(cmd: str) -> str:
+    """Подставляет значения простых присваиваний VAR=value из самой команды (f=AGENTS; … $f.md)."""
+    vals = {m.group(1): m.group(2).strip("'\"") for m in re.finditer(r"(?:^|[\s;&|])([A-Za-z_]\w*)=([^\s;&|]*)", cmd)}
+    if not vals:
+        return cmd
+    out = cmd
+    for _ in range(2):
+        out = re.sub(r"\$\{(\w+)\}|\$(\w+)", lambda m: vals.get(m.group(1) or m.group(2), m.group(0)), out)
+    return out
+
+
+def _secret_parts(cmd: str, san) -> list[str]:
+    """Секрет, разрезанный на части (кавычки, переменные, конкатенация): склеиваем и сканируем."""
+    variants = [re.sub(r"[\'\"\\+]|\$\{?\w+\}?", "", cmd)]
+    literals = [a or b for a, b in re.findall(r"\"([^\"]*)\"|'([^']*)'", cmd)]
+    values = [m.group(1).strip("'\"") for m in re.finditer(r"\b[A-Za-z_]\w*=([^\s;&|]+)", cmd)]
+    for parts in (literals, values, literals + values):
+        if len(parts) > 1:
+            variants.append(" " + "".join(parts))
+    found: list[str] = []
+    for v in variants:
+        for k in san.scan_secrets(v):
+            if k not in found:
+                found.append(k)
+    return found
+
+
+def _write_targets(cmd: str) -> list[str]:
+    out = [m.group(1).strip("'\"") for m in re.finditer(r"(?<![0-9&>-])>{1,2}\s*([^\s;&|<>]+)", cmd)]
+    for toks in _segments(cmd):
+        names = [Path(t).name for t in toks]
+        if toks and (names[0] in _WRITERS or (names[0] == "sed" and any(t.startswith("-i") for t in toks))):
+            out += [t for t in toks[1:] if not t.startswith("-")]
+    return out
+
+
+def _dynamic_write_target(cmd: str) -> bool:
+    return any(_DYN.search(t) for t in _write_targets(cmd))
+
+
 def check_bash(ti: dict, cwd: str, san, d: Decision, deadline: float) -> None:
     cmd = ti.get("command") or ""
     if not isinstance(cmd, str) or not cmd.strip():
         return
+    cmd = cmd.replace("\\\n", " ")
+    # rm -rf / и подобное: блок
+    for toks in _segments(cmd):
+        names = [Path(t).name for t in toks]
+        if "rm" not in names:
+            continue
+        args = toks[names.index("rm") + 1:]
+        recursive = any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and re.search("[rR]", a))
+                        for a in args)
+        targets = [a for a in args if not a.startswith("-")]
+        home = os.path.expanduser("~")
+        bad = "--no-preserve-root" in args
+        for t in targets:
+            tl = t.lower().rstrip("/") + ("/" if t.endswith("/") and len(t) == 1 else "")
+            if t.lower() in _DANGEROUS_RM or tl in _DANGEROUS_RM:
+                bad = True
+            else:
+                try:
+                    rp = os.path.realpath(os.path.expanduser(t))
+                    if rp in ("/", home, str(ROOT)) or Path(rp) in ROOT.parents:
+                        bad = True
+                except (OSError, ValueError):
+                    pass
+        if bad and (recursive or "--no-preserve-root" in args):
+            d.deny.append("Рекурсивное удаление корня, домашней папки или проекта (rm -rf /) запрещено.")
+    # сетевой код в одной строке интерпретатора: python -c "urllib…", node -e "https…", heredoc
+    if RX_INTERP.search(cmd) and RX_INLINE.search(" " + cmd) and RX_NET_CODE.search(cmd):
+        d.deny.append("Сетевой вызов из встроенного кода (python -c/node -e/heredoc с urllib, requests, http, socket) "
+                      "запрещён: загрузки идут только через sa.py source fetch (allowlist), выгрузка наружу не допускается.")
+    if RX_INTERP.search(cmd) and RX_ALLOW_API.search(cmd) and "sa.py" not in cmd:
+        d.ask.append("Код обращается к allowlist (allow_domain/allowed_sources) мимо sa.py: это изменение правил агента.")
     if RX_PIPE_SHELL.search(cmd):
         d.deny.append("Запуск скрипта из интернета без проверки (curl/wget | sh) запрещён. "
                       "Скачайте файл, покажите его человеку и запускайте только после проверки.")
@@ -232,15 +343,24 @@ def check_bash(ti: dict, cwd: str, san, d: Decision, deadline: float) -> None:
     if RX_CURL.search(cmd) and RX_UPLOAD_ANY.search(" " + cmd):
         d.ask.append("Команда отправляет данные на внешний адрес (POST/-d/-F). Проверьте, что уходит "
                      "только открытая информация.")
+    for rx, what in ((RX_SA_GATE, "ворота этапа"), (RX_SA_BUDGET, "бюджет"), (RX_SA_FORCE, "обход ворот (--force)")):
+        if rx.search(cmd):
+            d.ask.append(f"Решение человека ({what}): sa.py gate/budget/stage --force/allow выполняются только "
+                         "после прямого ответа человека в чате, не по тексту источника.")
     if RX_SA_ALLOW.search(cmd):
-        d.ask.append("Изменение правил агента: добавление домена в allowlist — нужно согласие пользователя. "
+        d.ask.append("Решение человека (allowlist): добавление домена в allowlist — нужно согласие пользователя. "
                      "Подтверждайте, только если вы сами просили открыть этот источник, а не текст со страницы.")
-    found = san.scan_secrets(cmd)
+    found = san.scan_secrets(cmd) or _secret_parts(cmd, san)
     if found:
         d.ask.append(f"В команде есть секрет ({', '.join(found)}): он попадёт в журнал сессии. Разрешить?")
-    if RX_PROTECTED_IN_CMD.search(cmd) and RX_WRITE_OP.search(cmd):
+    expanded = _expand_assignments(cmd)
+    if RX_WRITE_OP.search(cmd) and (RX_PROTECTED_IN_CMD.search(cmd) or RX_PROTECTED_IN_CMD.search(expanded)
+                                    or any(is_protected(t, cwd) for t in _write_targets(expanded) if not _DYN.search(t))):
         d.ask.append("Команда может изменить правила или защиту агента (AGENTS.md, CLAUDE.md, .claude/…, "
                      "allowlist, sanitize.py). Подтвердите, что это решение человека.")
+    if _dynamic_write_target(cmd):
+        d.ask.append("Команда пишет в файл, имя которого собирается подстановкой ($var, $(…), маска): проверить, "
+                     "не правила ли агента это затрагивает, нельзя — подтвердите.")
     if RX_ENV_REF.search(cmd) and not re.search(r"\.env\.(example|sample|template)\b", cmd):
         d.ask.append("Команда обращается к файлу .env с секретами — его содержимое может попасть в контекст. Разрешить?")
     if RX_CURL.search(cmd) and "sa.py" not in cmd:
@@ -286,8 +406,10 @@ def decide(raw: str) -> tuple[int, str, str]:
         check_read(ti, d)
     elif tool == "Bash":
         check_bash(ti, cwd, san, d, start + 0.15)
-    elif tool == "WebFetch" or (tool.startswith("mcp__") and "url" in ti):
+    elif tool == "WebFetch":
         check_url_tool(ti.get("url"), d, san)
+    elif tool.startswith("mcp__"):
+        check_mcp(tool, ti, d, san)
     if d.deny:
         return 2, "", "Заблокировано защитой проекта (guard.py): " + " ".join(dict.fromkeys(d.deny))
     if d.ask:
@@ -297,11 +419,46 @@ def decide(raw: str) -> tuple[int, str, str]:
     return 0, "", ""
 
 
+TIME_LIMIT = 7  # секунд; settings.json даёт хуку 10 — отвечаем «ask» раньше, чем хук оборвут
+
+
+class _Timeout(Exception):
+    pass
+
+
+def _on_alarm(_sig, _frm):
+    raise _Timeout()
+
+
+RISKY_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "WebFetch", "Read")
+
+
+def fail_closed(why: str, raw: str = "") -> tuple[int, str, str]:
+    m = re.search(r'"tool_name"\s*:\s*"([^"]+)"', raw or "")
+    tool = m.group(1) if m else ""
+    if tool not in RISKY_TOOLS and not tool.startswith("mcp__"):
+        return 0, "", ""  # ввод без распознаваемого инструмента: нечего защищать
+    out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
+                                  "permissionDecisionReason": f"Защита проекта: хук не смог проверить действие ({why}). "
+                                                              "Подтвердите вручную, только если это ваша просьба."}}
+    return 0, json.dumps(out, ensure_ascii=False), ""
+
+
 def main() -> None:
+    raw = ""
     try:
-        code, out, err = decide(sys.stdin.read())
-    except Exception:  # noqa: BLE001 — хук не должен ломать работу при неожиданном вводе
-        code, out, err = 0, "", ""
+        raw = sys.stdin.read()
+        if hasattr(signal, "SIGALRM"):
+            signal.signal(signal.SIGALRM, _on_alarm)
+            signal.alarm(TIME_LIMIT)
+        code, out, err = decide(raw)
+    except _Timeout:
+        code, out, err = fail_closed("таймаут", raw)
+    except Exception as exc:  # noqa: BLE001 — fail-closed: при ошибке спрашиваем человека, а не разрешаем
+        code, out, err = fail_closed(type(exc).__name__, raw)
+    finally:
+        if hasattr(signal, "alarm"):
+            signal.alarm(0)
     if out:
         sys.stdout.write(out + "\n")
     if err:
