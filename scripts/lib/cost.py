@@ -85,8 +85,14 @@ def tier_for(stage_or_agent: str, routing: dict | None = None) -> str | None:
     return routing.get("stage_tiers", {}).get(stage_or_agent) or routing.get("subagent_tiers", {}).get(stage_or_agent)
 
 
-def model_for(stage_or_agent: str, routing: dict | None = None) -> str:
+def model_for(stage_or_agent: str, routing: dict | None = None, mode: str | None = None) -> str:
     routing = routing or load_routing()
+    if mode == "fast":
+        mt = routing.get("mode_tiers", {}).get("fast", {})
+        lvl = mt.get("stage_tiers", {}).get(stage_or_agent) or mt.get("subagent_tiers", {}).get(stage_or_agent)
+        m = routing.get("providers", {}).get("anthropic", {}).get(lvl or "", {}).get("model")
+        if m:
+            return m
     return (routing.get("stages", {}).get(stage_or_agent) or routing.get("subagents", {}).get(stage_or_agent)
             or routing.get("default_model", ""))
 

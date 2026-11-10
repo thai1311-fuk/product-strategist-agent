@@ -44,9 +44,42 @@ def classify(text: str, routing: dict | None = None) -> dict:
     return _result(best, best_hits, basis, routing)
 
 
-def for_stage(stage: str, routing: dict | None = None) -> dict:
+FAST_WORDS = ["быстро", "быстр", "прикинь", "прикин", "срочно", "срочн", "оценка за час", "за час", "за пару часов",
+              "черновик", "на скорую", "кратко", "в общих чертах", "экспресс", "дёшево", "дешево", "недорого"]
+FULL_WORDS = ["необратим", "крупн", "стратегическ", "инвестици", "запуск продукта", "закрыть направление", "закрытие",
+              "миллион", "млн", "млрд", "слияни", "поглощени", "ребрендинг", "выход на рынок", "выход в", "юридическ",
+              "регулятор", "увольнени", "сокращени", "go/no-go", "на годы", "ключев", "критичн"]
+FAST_BUDGET_MAX = 2.0
+
+
+def recommend_mode(text: str, budget: float | None = None) -> dict:
+    """Рекомендация режима проекта: {'mode': 'fast'|'full', 'reasons': [...]}. Без моделей.
+    Крупное/необратимое решение → full (приоритет); короткий/срочный запрос или бюджет ≤ 2 $ → fast; иначе full."""
+    low = " ".join(str(text or "").lower().split())
+    big = [k for k in FULL_WORDS if k in low]
+    quick = [k for k in FAST_WORDS if k in low]
+    reasons: list[str] = []
+    if big:
+        reasons.append("решение выглядит крупным/необратимым (слова: " + ", ".join(big) + ") — нужны ворота, проверки и пересмотр")
+        if budget is not None and budget <= FAST_BUDGET_MAX:
+            reasons.append(f"бюджет {budget:g} $ ≤ {FAST_BUDGET_MAX:g} $ мал для full — увеличьте бюджет (по умолчанию 5 $) или осознанно примите fast")
+        return {"mode": "full", "reasons": reasons}
+    if quick:
+        reasons.append("срочный/короткий запрос (слова: " + ", ".join(quick) + ")")
+    if budget is not None and budget <= FAST_BUDGET_MAX:
+        reasons.append(f"бюджет {budget:g} $ ≤ {FAST_BUDGET_MAX:g} $")
+    words = len(low.split())
+    if not reasons and 0 < words <= 8 and budget is None:
+        reasons.append(f"запрос короткий ({words} слов) и нет признаков крупного решения")
+    if reasons:
+        reasons.append("fast: только ворота option_chosen, модели cheap/medium, один объединённый прогон critic, бюджет по умолчанию 1.5 $")
+        return {"mode": "fast", "reasons": reasons}
+    return {"mode": "full", "reasons": ["нет признаков срочности и малого бюджета — режим по умолчанию (полная проверяемость)"]}
+
+
+def for_stage(stage: str, routing: dict | None = None, mode: str | None = None) -> dict:
     routing = routing or cost.load_routing()
-    model = cost.model_for(stage, routing)
+    model = cost.model_for(stage, routing, mode)
     skill = next((r.get("skill") for r in routing.get("rules", {}).get("list", []) if r.get("stage") == stage),
                  "strategist")
     return _result({"skill": skill, "stage": stage, "model": model}, [], "stage", routing)

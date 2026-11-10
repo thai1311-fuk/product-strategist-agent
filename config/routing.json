@@ -52,6 +52,19 @@
   "subagent_tiers": {
     "collector": "cheap", "synthetic-respondent": "cheap", "consistency-checker": "medium", "critic": "strong"
   },
+  "mode_tiers": {
+    "note": "Режимы проекта (state.json: mode). full — таблицы stage_tiers/subagent_tiers выше. fast — «быстро и дёшево»: этапы intake → collect (сбор+синтез одним шагом, без отдельного plan, 3–5 главных вопросов в brief.md) → options → strategy (кратко) → test_plan (кратко); ворота — только option_chosen; всё на уровне cheap/medium; consistency-checker и critic — один объединённый прогон critic (с проверкой согласованности) на medium; карточки методов — только по необходимости.",
+    "fast": {
+      "stage_tiers": {"intake": "medium", "plan": "medium", "collect": "cheap", "synthesis": "medium", "options": "medium",
+                      "strategy": "medium", "test_plan": "cheap", "decision": "medium", "monitor": "cheap"},
+      "subagent_tiers": {"collector": "cheap", "synthetic-respondent": "cheap", "consistency-checker": "medium", "critic": "medium"},
+      "merged_review": {"agent": "critic", "tier": "medium", "includes": ["consistency-checker"]},
+      "max_sources_per_question": 5,
+      "method_cards": "on_demand",
+      "default_budget_usd": 1.5
+    },
+    "full": {"default_budget_usd": 5.0}
+  },
   "providers": {
     "note": "Примеры соответствия уровней моделям провайдеров. Названия моделей — ориентир, проверьте актуальные у провайдера. Цены (USD за 1 млн токенов) пустые: заполните по прайсу провайдера на дату использования; пока null — расход по такой модели считается как 0 (с предупреждением) или по ценам уровня, если указан --tier. Anthropic — условные цены из блока models.",
     "anthropic": {

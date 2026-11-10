@@ -346,8 +346,7 @@ def _check_state(pdir: Path, rep: Report) -> None:
     if miss:
         rep.err(f"state.json: этап {st.get('stage')} пройден без ворот {', '.join(miss)} — нужно решение человека "
                 f"(sa.py gate), иначе верните этап назад")
-    seen = state.visited_stages(st)
-    skipped = [x for x in state.STAGES[:idx] if x not in seen]
+    skipped = state.unvisited_stages(st)
     if skipped:
         rep.warn(f"state.json: в истории нет этапов {', '.join(skipped)} — они пропущены")
     acts = store.read_jsonl(pdir / "log" / "actions.jsonl")

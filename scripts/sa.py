@@ -36,12 +36,24 @@ def _p(args) -> Path:
 # ---------- проект и состояние ----------
 
 def cmd_new(a):
-    pdir = state.create_project(a.slug, a.title, a.budget)
+    pdir = state.create_project(a.slug, a.title, a.budget, a.mode)
     if a.demo:
         store.set_demo(pdir, True)
     print(f"Создан проект {a.slug}: {store.rel_path(pdir)}")
+    if a.mode == "fast":
+        print(f"Режим fast (бюджет ${state.load(pdir)['budget_usd']:.2f}): заполните {pdir.name}/brief.md вместе с 3–5 главными "
+              f"вопросами, затем python3 scripts/sa.py stage {a.slug} collect --next \"…\" (сбор+синтез одним шагом)")
+        return
     print(f"Дальше: заполните {pdir.name}/brief.md (этап 0 — intake), затем "
           f"python3 scripts/sa.py stage {a.slug} plan --next \"…\"")
+
+
+def cmd_mode(a):
+    st = state.set_mode(_p(a), a.mode)
+    print(f"{st['project']}: режим = {a.mode}")
+    miss = state.missing_gates(st, st.get("stage", ""))
+    if miss:
+        print(f"⚠ В режиме full не пройдены ворота: {', '.join(miss)} — получите решение человека (sa.py gate).")
 
 
 def cmd_demo(a):
@@ -54,6 +66,12 @@ def cmd_demo(a):
 
 def cmd_route(a):
     import route as _route  # noqa: PLC0415
+    if a.recommend:
+        r = _route.recommend_mode(a.text or "", a.budget)
+        print(f"Рекомендуемый режим: {r['mode']}")
+        for x in r["reasons"]:
+            print(f"  - {x}")
+        return 0
     pdir = _p(a)
     if a.escalate:
         r = _route.check_escalation(pdir, a.stage)
@@ -70,9 +88,11 @@ def cmd_route(a):
                 print(f"  - {x}")
         return 1 if r["escalate"] else 0
     if a.stage:
-        res = _route.for_stage(a.stage)
+        res = _route.for_stage(a.stage, mode=state.mode_of(state.load(pdir)))
     elif a.text:
         res = _route.classify(a.text)
+        rec = _route.recommend_mode(a.text, a.budget)
+        print(f"Режим проекта: рекомендуется {rec['mode']} ({'; '.join(rec['reasons'][:1])})")
     else:
         raise SAError("Укажите текст запроса, либо --stage <этап>, либо --escalate")
     print("\n".join(_route.format_result(res)))
@@ -120,6 +140,7 @@ def cmd_status(a):
     E = store.read_jsonl(pdir / "evidence.jsonl")
     C = store.read_jsonl(pdir / "conclusions.jsonl")
     print(f"{st['project']} — {st.get('title')}")
+    print(f"Режим: {state.mode_of(st)}")
     print(f"{state.stage_label(st['stage'])}: {state.STATUS_RU.get(st['stage_status'], st['stage_status'])}")
     print(f"Следующий шаг: {st.get('next_step') or '—'}")
     qs = st.get("open_questions") or []
@@ -493,14 +514,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = add("new", cmd_new, "создать проект из шаблонов")
     sp.add_argument("--title", required=True)
-    sp.add_argument("--budget", type=float, default=5.0, help="бюджет, USD (по умолчанию 5)")
+    sp.add_argument("--budget", type=float, default=None, help="бюджет, USD (по умолчанию: full 5, fast 1.5)")
+    sp.add_argument("--mode", choices=state.MODES, default="full", help="full (по умолчанию) или fast («быстро и дёшево»)")
     sp.add_argument("--demo", action="store_true", help="демонстрационный проект: не выбирается активным, хуки в него не пишут")
     add("list", cmd_list, "список проектов", slug=None)
+    sp = add("mode", cmd_mode, "сменить режим проекта: fast (быстро и дёшево) или full")
+    sp.add_argument("mode", choices=state.MODES)
     sp = add("demo", cmd_demo, "пометить/снять пометку демонстрационного проекта")
     sp.add_argument("mode", choices=["on", "off"])
     sp = add("route", cmd_route, "какой скилл и модель подходят запросу/этапу; --escalate — проверить, нужна ли сильная модель")
     sp.add_argument("text", nargs="?", help="текст запроса")
     sp.add_argument("--stage", choices=state.STAGES)
+    sp.add_argument("--recommend", action="store_true", help="рекомендовать режим fast/full по тексту запроса и --budget")
+    sp.add_argument("--budget", type=float, default=None, help="бюджет USD (для --recommend)")
     sp.add_argument("--escalate", action="store_true", help="после ошибок validate/цитат рекомендовать модель уровнем выше")
     sp = sub.add_parser("search", help="поиск по формулировке в проекте или по карточкам методов (--methods)")
     sp.add_argument("slug", nargs="?")

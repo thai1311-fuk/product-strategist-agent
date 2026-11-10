@@ -31,7 +31,20 @@ GATE_ADVANCE = {
 # Все ворота, которые должны быть пройдены до этапа с данным индексом (по индексу этапа, а не только «на самом этапе»)
 GATE_FROM_STAGE = {"plan_approved": "collect", "option_chosen": "strategy", "strategy_approved": "test_plan"}
 GATE_OF_STAGE = {"plan": "plan_approved", "options": "option_chosen", "strategy": "strategy_approved"}
+MODES = ["full", "fast"]
+# fast: план утверждается вместе с брифом, стратегия — по желанию; обязательны только option_chosen.
+FAST_OPTIONAL_GATES = {"plan_approved", "strategy_approved"}
+# fast: отдельные этапы plan и synthesis не требуются (collect = сбор + синтез одним шагом)
+FAST_SKIPPABLE_STAGES = {"plan", "synthesis"}
+DEFAULT_BUDGET = {"full": 5.0, "fast": 1.5}
+FAST_BRIEF_ADDON = ("\n## Главные вопросы (режим fast, 3–5)\n\n"
+                    "_План утверждается вместе с брифом: на какие 3–5 вопросов должен ответить сбор._\n\n1. \n2. \n3. \n")
 OUTPUT_NAMES = ["research_plan", "situation", "options", "product_strategy", "comms_strategy", "test_plan"]
+
+
+def mode_of(st: dict) -> str:
+    m = (st or {}).get("mode")
+    return m if m in MODES else "full"
 
 
 def stage_label(stage: str) -> str:
@@ -45,7 +58,9 @@ def missing_gates(st: dict, stage: str) -> list[str]:
         return []
     idx = STAGES.index(stage)
     gates = st.get("gates") or {}
-    return [g for g, first in GATE_FROM_STAGE.items() if idx >= STAGES.index(first) and not gates.get(g)]
+    optional = FAST_OPTIONAL_GATES if mode_of(st) == "fast" else set()
+    return [g for g, first in GATE_FROM_STAGE.items()
+            if g not in optional and idx >= STAGES.index(first) and not gates.get(g)]
 
 
 def current_actor(human_confirm: bool = False) -> str:
@@ -79,6 +94,15 @@ def visited_stages(st: dict) -> set[str]:
     return seen
 
 
+def unvisited_stages(st: dict) -> list[str]:
+    """Этапы до текущего, которых нет в истории (в fast plan и synthesis не требуются)."""
+    if st.get("stage") not in STAGES:
+        return []
+    seen = visited_stages(st)
+    ok = FAST_SKIPPABLE_STAGES if mode_of(st) == "fast" else set()
+    return [x for x in STAGES[: STAGES.index(st["stage"])] if x not in seen and x not in ok]
+
+
 def load(pdir: Path) -> dict:
     return store.read_json(pdir / "state.json")
 
@@ -102,8 +126,12 @@ def _check_budget(usd) -> float:
     return v
 
 
-def create_project(slug: str, title: str, budget: float = 5.0) -> Path:
+def create_project(slug: str, title: str, budget: float | None = None, mode: str = "full") -> Path:
     store.check_slug(slug)
+    if mode not in MODES:
+        raise SAError(f"Неизвестный режим «{mode}». Допустимо: {', '.join(MODES)}")
+    if budget is None:
+        budget = DEFAULT_BUDGET[mode]
     _check_budget(budget)
     pdir = store.projects_dir() / slug
     if (pdir / "state.json").exists():
@@ -130,6 +158,8 @@ def create_project(slug: str, title: str, budget: float = 5.0) -> Path:
     brief_tpl = store.TEMPLATES_DIR / "brief.md"
     if brief_tpl.exists() and not (pdir / "brief.md").exists():
         text = brief_tpl.read_text(encoding="utf-8").replace("{{title}}", title).replace("{{slug}}", slug)
+        if mode == "fast":
+            text = text.rstrip("\n") + "\n" + FAST_BRIEF_ADDON
         store.atomic_write_text(pdir / "brief.md", text)
         copied.append("brief.md")
     for name in OUTPUT_NAMES:
@@ -141,12 +171,12 @@ def create_project(slug: str, title: str, budget: float = 5.0) -> Path:
 
     ts = store.now_iso()
     st = {
-        "project": slug, "title": title, "stage": "intake", "stage_status": "in_progress",
+        "project": slug, "title": title, "mode": mode, "stage": "intake", "stage_status": "in_progress",
         "next_step": "Заполнить brief.md: вопрос, цель, получатель, ограничения, доступные данные (≤5 вопросов за раз)",
         "open_questions": [],
         "gates": {"plan_approved": False, "option_chosen": None, "strategy_approved": False},
         "budget_usd": float(budget), "created_at": ts, "updated_at": ts,
-        "history": [{"ts": ts, "stage": "intake", "event": f"проект создан; шаблоны: {', '.join(copied) or 'нет'}"}],
+        "history": [{"ts": ts, "stage": "intake", "event": f"проект создан (режим {mode}); шаблоны: {', '.join(copied) or 'нет'}"}],
     }
     store.write_json(pdir / "state.json", st)
     store.log_action(pdir, "new", slug, detail=f"шаблоны: {', '.join(copied) or 'нет'}")
@@ -186,6 +216,19 @@ def set_stage(pdir: Path, stage: str, status: str | None = None, next_step: str 
         add_history(st, ev)
         save(pdir, st)
     store.log_action(pdir, "stage", f"{stage}/{status}", detail=note or "")
+    return st
+
+
+def set_mode(pdir: Path, mode: str) -> dict:
+    if mode not in MODES:
+        raise SAError(f"Неизвестный режим «{mode}». Допустимо: {', '.join(MODES)}")
+    with store.locked(pdir / "state.json"):
+        st = load(pdir)
+        old = mode_of(st)
+        st["mode"] = mode
+        add_history(st, f"режим {old} → {mode}")
+        save(pdir, st)
+    store.log_action(pdir, "mode", f"{old} → {mode}", actor=current_actor())
     return st
 
 
@@ -319,7 +362,7 @@ def resume_lines(pdir: Path, max_lines: int = 40) -> list[str]:
     C = store.read_jsonl(pdir / "conclusions.jsonl")
     g = st.get("gates", {})
     mark = lambda v: "✓" if v else "—"  # noqa: E731
-    out = [f"Проект: {st.get('project')} — {st.get('title')}",
+    out = [f"Проект: {st.get('project')} — {st.get('title')} · режим: {mode_of(st)}",
            f"{stage_label(st.get('stage', ''))} ({st.get('stage')}) · статус: "
            f"{STATUS_RU.get(st.get('stage_status'), st.get('stage_status'))} · обновлено {st.get('updated_at', '')[:16]}",
            f"Следующий шаг: {st.get('next_step') or '—'}",
@@ -335,8 +378,7 @@ def resume_lines(pdir: Path, max_lines: int = 40) -> list[str]:
     if miss:
         out.append(f"⚠ НАРУШЕНЫ ВОРОТА: этап {st.get('stage')} достигнут без {', '.join(miss)} — "
                    "остановитесь, получите решение человека (sa.py gate) или верните этап назад.")
-    skipped = [x for x in STAGES[: STAGES.index(st["stage"])] if x not in visited_stages(st)] \
-        if st.get("stage") in STAGES else []
+    skipped = unvisited_stages(st)
     if skipped:
         out.append("⚠ Этапы без отметки в истории (пропущены): " + ", ".join(skipped))
     pend = unfinished_actions(pdir)
@@ -372,7 +414,7 @@ def resume_lines(pdir: Path, max_lines: int = 40) -> list[str]:
         s = cost.summary(pdir)
         warn = " ⚠ >80% бюджета — предупредите пользователя" if s["share"] >= 0.8 else ""
         out.append(f"Расходы: ${s['total']:.2f} из ${s['budget']:.2f} ({s['share'] * 100:.0f}%){warn}; "
-                   f"модель этапа: {cost.model_for(st.get('stage', ''))}")
+                   f"модель этапа: {cost.model_for(st.get('stage', ''), mode=mode_of(st))}")
     except Exception as exc:  # noqa: BLE001
         out.append(f"Расходы: нет данных ({exc})")
     acts = store.read_jsonl(pdir / "log" / "actions.jsonl")[-5:]
