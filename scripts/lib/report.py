@@ -172,7 +172,7 @@ class Project:
         self.costs = _read_jsonl(root / "log" / "costs.jsonl")
         self.outputs: dict[str, str] = {}
         out = root / "outputs"
-        for name in ("situation", "research_plan", "options", "product_strategy", "comms_strategy", "test_plan"):
+        for name in ("situation", "research_plan", "options", "product_strategy", "comms_strategy", "test_plan", "brief_answer"):
             _, body = _strip_frontmatter(_read_text(out / f"{name}.md"))
             self.outputs[name] = body
         self.decisions: list[tuple[dict, str, str]] = []
@@ -321,8 +321,10 @@ class RefRenderer:
             if st == "needs_review":
                 cls.append("st-review")
                 label = "на пересмотре"
-            elif st in ("retracted", "revised"):
+            elif st == "retracted":
                 cls.append("st-inactive")
+                label = C_STATUS.get(st, st)
+            elif st == "revised":  # пересмотренный вывод действует (так его трактуют impact и validate)
                 label = C_STATUS.get(st, st)
             return "\n".join(parts), cls, label
         if kind == "S" and rid in p.src_by_id:
@@ -926,7 +928,7 @@ class ReportBuilder:
             deps = _list_values(c.get("depends_on"))
             note = f'<div class="muted small">{esc(_short(c.get("note"), 300))}</div>' if c.get("note") else ""
             rows.append(
-                f'<tr id="{esc(cid)}" class="{"row-review" if st == "needs_review" else ("row-inactive" if st in ("retracted", "revised") else "")}">'
+                f'<tr id="{esc(cid)}" class="{"row-review" if st == "needs_review" else ("row-inactive" if st == "retracted" else "")}">'
                 f'<td class="nowrap"><strong>{esc(cid)}</strong></td>'
                 f'<td>{esc(C_KIND.get(str(c.get("kind")), c.get("kind") or "—"))}</td>'
                 f'<td>{esc(c.get("statement"))}{note}</td>'
@@ -1054,6 +1056,9 @@ class ReportBuilder:
         sections = [
             ("decision", "Решение на одной странице", safe(self.one_pager), True),
             ("progress", "Прогресс по этапам", safe(self.progress), True),
+        ] + ([
+            ("brief-answer", "Документ по формату заказчика", safe(self.output_section, "brief_answer", ""), True),
+        ] if self.p.outputs.get("brief_answer", "").strip() else []) + [
             ("situation", "Картина ситуации", safe(self.output_section, "situation", "Появится на этапе 3 «Картина ситуации»: что известно, откуда, чего не знаем."), True),
             ("options", "Варианты", safe(self.output_section, "options", "Появится на этапе 4 «Варианты»: не меньше трёх разных вариантов с возражениями."), True),
             ("product", "Продуктовая стратегия", safe(self.output_section, "product_strategy", "Появится после выбора варианта."), True),

@@ -1,0 +1,213 @@
+{
+  "project": "family-connect",
+  "title": "Связь для близких и собственных устройств: кому помочь первым, что изменить и стоит ли вкладываться (пилот к концу Q1, расширение к концу Q2)",
+  "mode": "full",
+  "stage": "monitor",
+  "stage_status": "in_progress",
+  "next_step": "Следить за обязательствами D001; новые данные → impact",
+  "open_questions": [
+    "Q2: Какие причины перебоя у участника и какие оператор может предотвратить вовремя?",
+    "Q5: Какие нормы согласия и тайны связи ограничивают, что видит организатор?",
+    "Q6: Насколько велика проблема у владельцев нескольких номеров?"
+  ],
+  "gates": {
+    "plan_approved": true,
+    "option_chosen": "C010",
+    "strategy_approved": true
+  },
+  "budget_usd": 20.0,
+  "created_at": "2026-11-21T14:17:08+03:00",
+  "updated_at": "2026-11-21T15:11:20+03:00",
+  "history": [
+    {
+      "ts": "2026-11-21T14:17:08+03:00",
+      "stage": "intake",
+      "event": "проект создан (режим full); шаблоны: brief.md, outputs/research_plan.md, outputs/situation.md, outputs/options.md, outputs/product_strategy.md, outputs/comms_strategy.md, outputs/test_plan.md"
+    },
+    {
+      "ts": "2026-11-21T14:18:04+03:00",
+      "stage": "intake",
+      "event": "бюджет 5.0 → 15.0 USD: Ответ пользователя в чате 21.11: бюджет 15 $ на полный режим"
+    },
+    {
+      "ts": "2026-11-21T14:18:04+03:00",
+      "stage": "plan",
+      "event": "intake/in_progress → plan/in_progress"
+    },
+    {
+      "ts": "2026-11-21T14:19:26+03:00",
+      "stage": "plan",
+      "event": "открыт вопрос: Q1: Где отставание базового года — приток, активность или уход групп?"
+    },
+    {
+      "ts": "2026-11-21T14:19:27+03:00",
+      "stage": "plan",
+      "event": "открыт вопрос: Q2: Какие причины перебоя у участника и какие оператор может предотвратить вовр…"
+    },
+    {
+      "ts": "2026-11-21T14:19:27+03:00",
+      "stage": "plan",
+      "event": "открыт вопрос: Q3: Что уже предлагают реальные операторы (делёж пакета, уведомления организато…"
+    },
+    {
+      "ts": "2026-11-21T14:19:27+03:00",
+      "stage": "plan",
+      "event": "открыт вопрос: Q4: Может ли решение дать 12 000 доп. оплаченных месяцев; что известно о связи …"
+    },
+    {
+      "ts": "2026-11-21T14:19:27+03:00",
+      "stage": "plan",
+      "event": "открыт вопрос: Q5: Какие нормы согласия и тайны связи ограничивают, что видит организатор?"
+    },
+    {
+      "ts": "2026-11-21T14:19:27+03:00",
+      "stage": "plan",
+      "event": "открыт вопрос: Q6: Насколько велика проблема у владельцев нескольких номеров?"
+    },
+    {
+      "ts": "2026-11-21T14:19:27+03:00",
+      "stage": "plan",
+      "event": "plan/in_progress → plan/awaiting_human"
+    },
+    {
+      "ts": "2026-11-21T14:23:11+03:00",
+      "stage": "plan",
+      "event": "ворота plan_approved = True (решение: delegated)"
+    },
+    {
+      "ts": "2026-11-21T14:23:11+03:00",
+      "stage": "collect",
+      "event": "plan/awaiting_human → collect/in_progress (после ворот plan_approved)"
+    },
+    {
+      "ts": "2026-11-21T14:23:11+03:00",
+      "stage": "collect",
+      "event": "collect/in_progress → collect/in_progress"
+    },
+    {
+      "ts": "2026-11-21T14:28:57+03:00",
+      "stage": "synthesis",
+      "event": "collect/in_progress → synthesis/in_progress"
+    },
+    {
+      "ts": "2026-11-21T14:31:31+03:00",
+      "stage": "options",
+      "event": "synthesis/in_progress → options/in_progress"
+    },
+    {
+      "ts": "2026-11-21T14:41:42+03:00",
+      "stage": "options",
+      "event": "impact E059: на пересмотр C010"
+    },
+    {
+      "ts": "2026-11-21T14:41:42+03:00",
+      "stage": "options",
+      "event": "impact E060: на пересмотр C013"
+    },
+    {
+      "ts": "2026-11-21T14:42:59+03:00",
+      "stage": "options",
+      "event": "options/in_progress → options/awaiting_human"
+    },
+    {
+      "ts": "2026-11-21T14:42:59+03:00",
+      "stage": "options",
+      "event": "ворота option_chosen = C010 (решение: delegated)"
+    },
+    {
+      "ts": "2026-11-21T14:42:59+03:00",
+      "stage": "strategy",
+      "event": "options/awaiting_human → strategy/in_progress (после ворот option_chosen)"
+    },
+    {
+      "ts": "2026-11-21T14:53:41+03:00",
+      "stage": "strategy",
+      "event": "impact C010: на пересмотр C016, C017, C019, C021"
+    },
+    {
+      "ts": "2026-11-21T14:53:51+03:00",
+      "stage": "strategy",
+      "event": "strategy/in_progress → strategy/awaiting_human"
+    },
+    {
+      "ts": "2026-11-21T14:53:51+03:00",
+      "stage": "strategy",
+      "event": "ворота strategy_approved = True (решение: delegated)"
+    },
+    {
+      "ts": "2026-11-21T14:53:51+03:00",
+      "stage": "test_plan",
+      "event": "strategy/awaiting_human → test_plan/in_progress (после ворот strategy_approved)"
+    },
+    {
+      "ts": "2026-11-21T14:53:51+03:00",
+      "stage": "decision",
+      "event": "test_plan/in_progress → decision/in_progress"
+    },
+    {
+      "ts": "2026-11-21T14:54:15+03:00",
+      "stage": "monitor",
+      "event": "decision/in_progress → monitor/in_progress"
+    },
+    {
+      "ts": "2026-11-21T14:54:21+03:00",
+      "stage": "monitor",
+      "event": "закрыт вопрос: Q1: Где отставание базового года — приток, активность или уход групп?"
+    },
+    {
+      "ts": "2026-11-21T14:54:21+03:00",
+      "stage": "monitor",
+      "event": "закрыт вопрос: Q3: Что уже предлагают реальные операторы (делёж пакета, уведомления организато…"
+    },
+    {
+      "ts": "2026-11-21T14:54:21+03:00",
+      "stage": "monitor",
+      "event": "закрыт вопрос: Q4: Может ли решение дать 12 000 доп. оплаченных месяцев; что известно о связи …"
+    },
+    {
+      "ts": "2026-11-21T14:55:37+03:00",
+      "stage": "monitor",
+      "event": "impact E048: на пересмотр C003, C010, C016, C017, C019, C021"
+    },
+    {
+      "ts": "2026-11-21T14:57:08+03:00",
+      "stage": "monitor",
+      "event": "ворота plan_approved = True (решение: human)"
+    },
+    {
+      "ts": "2026-11-21T14:57:08+03:00",
+      "stage": "monitor",
+      "event": "ворота option_chosen = C010 (решение: human)"
+    },
+    {
+      "ts": "2026-11-21T14:57:09+03:00",
+      "stage": "monitor",
+      "event": "ворота strategy_approved = True (решение: human)"
+    },
+    {
+      "ts": "2026-11-21T14:57:09+03:00",
+      "stage": "monitor",
+      "event": "бюджет 15.0 → 20.0 USD: Ответ пользователя в чате 21.11: поднять до 20 $ (82 % израсходовано)"
+    },
+    {
+      "ts": "2026-11-21T14:57:09+03:00",
+      "stage": "monitor",
+      "event": "monitor/in_progress → monitor/in_progress"
+    },
+    {
+      "ts": "2026-11-21T15:05:24+03:00",
+      "stage": "monitor",
+      "event": "impact E063: на пересмотр C010, C015, C016, C017, C019, C021"
+    },
+    {
+      "ts": "2026-11-21T15:06:15+03:00",
+      "stage": "monitor",
+      "event": "impact E088: на пересмотр C003, C010, C016, C017, C019, C021"
+    },
+    {
+      "ts": "2026-11-21T15:11:20+03:00",
+      "stage": "monitor",
+      "event": "impact E057: на пересмотр C015"
+    }
+  ]
+}

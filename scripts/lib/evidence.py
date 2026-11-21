@@ -34,6 +34,25 @@ SYNTHETIC_LABEL = "СИНТЕТИКА — ответы ИИ-респондент
 USER_AGENT = "mgimo-strategist/1.0 (+research agent; respects allowlist)"
 
 
+
+def _detect_charset(body: bytes, header_charset: str) -> str:
+    """Кодировка страницы: заголовок HTTP → <meta charset> → UTF-8, если байты валидны, → windows-1251.
+    Многие российские госсайты (pravo.gov.ru) отдают windows-1251 без charset в заголовке."""
+    import codecs
+    for cand in (header_charset,
+                 (re.search(rb'<meta[^>]+charset=["\']?([A-Za-z0-9_-]+)', body[:4096], re.I) or [None, b""])[1].decode("ascii", "ignore")):
+        if cand:
+            try:
+                codecs.lookup(cand)
+                return cand
+            except LookupError:
+                pass
+    try:
+        body.decode("utf-8")
+        return "utf-8"
+    except UnicodeDecodeError:
+        return "cp1251"
+
 def _choice(value, allowed, name):
     if value not in allowed:
         raise SAError(f"Недопустимое значение {name}=«{value}». Допустимо: {', '.join(allowed)}")
@@ -525,7 +544,7 @@ def fetch_source(pdir: Path, url: str, title: str | None = None, reliability: st
         with opener.open(req, timeout=FETCH_TIMEOUT) as resp:
             final_url = resp.geturl()
             ctype = (resp.headers.get("Content-Type") or "").lower()
-            charset = resp.headers.get_content_charset() or "utf-8"
+            charset = resp.headers.get_content_charset() or ""
             body = resp.read(FETCH_MAX_BYTES + 1)
     except SAError:
         raise
@@ -556,7 +575,7 @@ def fetch_source(pdir: Path, url: str, title: str | None = None, reliability: st
     if "pdf" in ctype or body[:5] == b"%PDF-":
         raise SAError("Это PDF: без внешних библиотек текст не извлечь. Сохраните текст в .txt и используйте "
                       f"sa.py source add <slug> --file … --locator {url}")
-    text = body.decode(charset, errors="replace")
+    text = body.decode(_detect_charset(body, charset), errors="replace")
     page_title = ""
     if "html" in ctype or _looks_html(text):
         _, page_title, _ = html_parse(text)  # заголовок; текст и скрытое разбирает _clean

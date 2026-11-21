@@ -350,8 +350,16 @@ def _check_state(pdir: Path, rep: Report) -> None:
     if skipped:
         rep.warn(f"state.json: в истории нет этапов {', '.join(skipped)} — они пропущены")
     acts = store.read_jsonl(pdir / "log" / "actions.jsonl")
+    # Ворота считаются подтверждёнными, если после записи агента тот же человек закрыл их с тем же значением.
+    confirmed: set[tuple] = set()
+    for a in reversed(acts):
+        if a.get("action") == "gate" and a.get("actor") == "human" and a.get("ok", True):
+            confirmed.add((a.get("target"), a.get("detail")))
+        elif a.get("action") == "gate" and (a.get("target"), a.get("detail")) in confirmed:
+            a["_confirmed_later"] = True
     for a in acts:
         if a.get("action") == "gate" and a.get("actor") != "human" and a.get("ok", True) \
+                and not a.get("_confirmed_later") \
                 and a.get("detail") not in ("False", "None", ""):
             rep.warn(f"log: ворота {a.get('target')} закрыты автором «{a.get('actor')}», а не человеком "
                      f"({str(a.get('ts', ''))[:16]}) — подтвердите решение в чате")

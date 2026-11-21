@@ -141,6 +141,8 @@ def main(argv=None) -> int:
     g.add_argument("--mde-rel", type=c.share_type, help="минимальный эффект, относительный: 0.1 или 10%% (4,2 %% → 4,62 %%)")
     g.add_argument("--mde-abs", help="минимальный эффект абсолютный: для долей — доля (0.005 = +0,5 п. п.), "
                                      "для средних — в единицах метрики (60 = +60 руб.)")
+    p.add_argument("--decrease", action="store_true",
+                   help="ожидаем снижение доли (например, доля ограничений 12 %% → 8 %%): MDE вычитается из базы")
     p.add_argument("--alpha", type=float, default=0.05)
     p.add_argument("--power", type=float, default=0.8)
     p.add_argument("--one-sided", action="store_true", help="односторонний тест (только если ухудшение не интересует)")
@@ -160,16 +162,21 @@ def main(argv=None) -> int:
         mde_abs = base * a.mde_rel if a.mde_rel is not None else c.parse_share(a.mde_abs)
     except ValueError as e:
         p.error(f"--mde-abs: {e}")
-    if not 0 < base + mde_abs < 1 or mde_abs <= 0:
+    if mde_abs <= 0:
+        p.error("MDE должен быть > 0; для снижения доли добавьте --decrease")
+    if getattr(a, "decrease", False):
+        mde_abs = -mde_abs
+    if not 0 < base + mde_abs < 1:
         p.error(f"базовая конверсия {c.pct(base, 2)} + MDE {c.pct(mde_abs, 2)} выходит за (0; 100 %): "
                 f"уменьшите --mde-rel/--mde-abs или проверьте --baseline")
     share = a.share
     res = plan(base, mde_abs, a.alpha, a.power, not a.one_sided, a.variants, a.daily, share)
 
+    sign = "+" if mde_abs > 0 else "−"
     L = ["# Размер выборки A/B-теста", "", "| Параметр | Значение |", "|---|---|",
          f"| Базовая конверсия | {c.pct(base, 2)} |",
-         f"| Минимальный обнаруживаемый эффект (MDE) | +{c.fmt(mde_abs * 100, 2)} п. п. → {c.pct(base + mde_abs, 2)} "
-         f"(относительно {c.pct(mde_abs / base)}) |",
+         f"| Минимальный обнаруживаемый эффект (MDE) | {sign}{c.fmt(abs(mde_abs) * 100, 2)} п. п. → {c.pct(base + mde_abs, 2)} "
+         f"(относительно {sign}{c.pct(abs(mde_abs) / base)}) |",
          f"| α / мощность | {a.alpha} ({'одностор.' if a.one_sided else 'двустор.'}"
          f"{', поправка Бонферрони на ' + str(res['comparisons']) + ' сравн.' if res['comparisons'] > 1 else ''}) / {a.power} |",
          f"| Групп | {a.variants} |",
@@ -182,10 +189,10 @@ def main(argv=None) -> int:
     L += ["", "## Как меняется срок от MDE", "", "| MDE (отн.) | MDE (п. п.) | На группу | Срок, дней |", "|---|---|---|---|"]
     for f in (0.5, 1.0, 1.5, 2.0):
         m = mde_abs * f
-        if base + m >= 1:
+        if not 0 < base + m < 1:
             continue
         r = plan(base, m, a.alpha, a.power, not a.one_sided, a.variants, a.daily, share)
-        L.append(f"| {c.pct(m / base)} | {c.fmt(m * 100, 2)} | {c.fmt(float(r['n']), 0)} | {r['dur']['days'] if r['dur'] else '—'} |")
+        L.append(f"| {sign}{c.pct(abs(m) / base)} | {sign}{c.fmt(abs(m) * 100, 2)} | {c.fmt(float(r['n']), 0)} | {r['dur']['days'] if r['dur'] else '—'} |")
     warn = []
     if d and d["days"] > MAX_DAYS_WARN:
         warn.append(f"срок {d['days']} дн. > {MAX_DAYS_WARN}: увеличьте MDE, долю трафика, возьмите более чувствительную "
@@ -197,7 +204,7 @@ def main(argv=None) -> int:
     warn.append("срок и критерий остановки фиксируются до старта; досрочная остановка при «значимости» даёт ложные победы")
     warn.append("проверяйте SRM: фактическое соотношение групп должно совпадать с плановым")
     L += ["", "## Предупреждения", ""] + [f"- {w}" for w in warn]
-    itog = (f"ИТОГ: при базе {c.pct(base, 2)} и MDE +{c.fmt(mde_abs * 100, 2)} п. п. нужно {res['n']} на группу"
+    itog = (f"ИТОГ: при базе {c.pct(base, 2)} и MDE {sign}{c.fmt(abs(mde_abs) * 100, 2)} п. п. нужно {res['n']} на группу"
             + (f", срок {d['days']} дней ({d['weeks']} нед.)" if d else "") + f" при α={a.alpha}, мощности {a.power}.")
     L += ["", itog, "", c.provenance_md("ab_size.py", [], vars(a))]
     out = c.resolve_out(a, "ab_size.md")

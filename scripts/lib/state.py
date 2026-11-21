@@ -281,7 +281,8 @@ def set_gate(pdir: Path, gate: str, value: str | None = None, revoke: bool = Fal
 def _sync_gate_docs(pdir: Path, gate: str, val, actor: str, concl_text: str = "") -> None:
     """Обновляет статусы в документах при закрытии ворот (options.md — выбранный вариант; research_plan.md — утверждение)."""
     today = store.now_iso()[:10]
-    who = {"human": "человек", "agent": "агент (без подтверждения человеком)"}.get(actor, actor)
+    who = {"human": "человек", "agent": "агент (без подтверждения человеком)",
+           "delegated": "агент по прямому поручению человека в чате"}.get(actor, actor)
     if gate == "option_chosen":
         f = pdir / "outputs" / "options.md"
         if not f.is_file():
@@ -326,7 +327,7 @@ def set_budget(pdir: Path, usd: float, reason: str = "") -> dict:
         st["budget_usd"] = float(usd)
         add_history(st, f"бюджет {old} → {float(usd)} USD" + (f": {reason}" if reason else ""))
         save(pdir, st)
-    store.log_action(pdir, "budget", f"{old} → {usd}", detail=reason, actor="human")
+    store.log_action(pdir, "budget", f"{old} → {usd}", detail=reason, actor=current_actor(human_confirm=True))
     return st
 
 

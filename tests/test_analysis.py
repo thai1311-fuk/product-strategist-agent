@@ -410,3 +410,17 @@ class TestCLI(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AbSizeDecreaseTest(unittest.TestCase):
+    """Снижение доли (--decrease) считается отдельно от роста: 12 % → 8 % требует меньше, чем 12 % → 16 %."""
+
+    def test_decrease_smaller_than_increase(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("ab_size", Path(__file__).resolve().parents[1] / "scripts" / "analysis" / "ab_size.py")
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        up = m.sample_size(0.12, 0.04)
+        down = m.sample_size(0.12, -0.04)
+        self.assertEqual(down, 882)
+        self.assertLess(down, up)
